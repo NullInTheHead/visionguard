@@ -27,3 +27,5 @@ jobs:
           ruff format --check .
       - name: Test
         run: pytest
+      - name: README results match the CSVs
+        run: python scripts/make_tables.py --check

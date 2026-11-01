@@ -126,3 +126,30 @@ def test_apply_threshold_uses_frozen_margin(tmp_path, monkeypatch):
     assert row.margin == margin == 0.13  # read from the config, not re-tuned
     # threshold 1.13: good 1.20 is flagged (FPR 0.5), defect 1.05 is missed (recall 0.5)
     assert (row.fpr, row.recall, row.role) == (0.5, 0.5, "held_out")
+
+
+def test_make_tables_rewrites_only_the_marked_block(tmp_path):
+    make = _load_script("make_tables")
+    split = load_split(REPO / "configs" / "split.yaml")
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "split.yaml").write_text((REPO / "configs" / "split.yaml").read_text())
+    e1 = tmp_path / "results" / "e1"
+    e1.mkdir(parents=True)
+    cats = list(split.dev) + list(split.held_out)
+    pd.DataFrame(
+        {"backbone": "wrn50", "calibration_fraction": 0.1, "category": cats,
+         "image_auroc": 0.9, "pixel_auroc": 0.8, "au_pro": 0.7, "fpr_at_95_recall": 0.1}
+    ).to_csv(e1 / "metrics.csv", index=False)  # fmt: skip
+    pd.DataFrame({"category": list(split.dev), "recall": 0.5, "fpr": 0.01, "loco_recall": 0.4,
+                  "margin": 0.13}).to_csv(e1 / "threshold_wrn50.csv", index=False)  # fmt: skip
+    held = pd.DataFrame({"category": list(split.held_out), "recall": 0.6, "fpr": 0.02,
+                         "margin": 0.13})  # fmt: skip
+    held.to_csv(e1 / "threshold_wrn50_held_out.csv", index=False)
+    readme = tmp_path / "README.md"
+    readme.write_text(f"intro\n{make.START}\nSTALE-TABLE\n{make.END}\noutro\n")
+    assert make.main(["--root", str(tmp_path), "--check"]) == 1
+    assert make.main(["--root", str(tmp_path)]) == 0
+    text = readme.read_text()
+    assert text.startswith("intro\n") and text.endswith("outro\n") and "STALE-TABLE" not in text
+    assert "| **Mean** | **0.900** |" in text and "| screw |" in text
+    assert make.main(["--root", str(tmp_path), "--check"]) == 0
