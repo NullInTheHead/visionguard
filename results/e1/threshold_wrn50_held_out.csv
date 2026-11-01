@@ -1,0 +1,6 @@
+backbone,category,role,margin,calibration_max,threshold,recall,fpr,rejects_per_1000
+wrn50,carpet,held_out,0.13,1.1285,1.27521,0.9551,0.1429,142.9
+wrn50,grid,held_out,0.13,1.30898,1.47915,0.7719,0.0,0.0
+wrn50,hazelnut,held_out,0.13,1.73292,1.9582,0.9,0.0,0.0
+wrn50,screw,held_out,0.13,1.18127,1.33483,0.5462,0.0,0.0
+wrn50,transistor,held_out,0.13,1.55345,1.75539,0.825,0.0,0.0
