@@ -1,0 +1,16 @@
+# Settings shared by every experiment. Experiment configs (e1.yaml, e2.yaml,
+# e3.yaml) will extend this in Phase 2-3.
+data:
+  root: data/mvtec_anomaly_detection
+  split: configs/split.yaml
+
+# Reference / calibration split of each category's defect-free training images.
+# Status: PROPOSED (decision D3). 0.0 = use every training image as reference,
+# which matches the published PatchCore protocol.
+calibration:
+  fraction: 0.1
+  seed: 0
+
+few_shot:
+  ks: [1, 2, 4, 8]      # plus k=0 (E2a) and "all" (E1) as the two ends of the curve
+  seeds: [0, 1, 2, 3, 4]

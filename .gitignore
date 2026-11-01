@@ -1,0 +1,31 @@
+# Data and model artefacts (never committed)
+/data/
+*.tar.xz
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.faiss
+*.npy
+*.npz
+checkpoints/
+cache/
+outputs/
+wandb/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Notebooks and editors
+.ipynb_checkpoints/
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,22 @@
+# Development / held-out category split (protocol section 2).
+#
+# Status: PROPOSED (decision D1 in docs/protocol.md). Once docs/protocol.md is
+# committed as final, this file is frozen: held-out categories are never looked
+# at while choosing anything (layers, image size, coreset ratio, thresholds,
+# prompts for the demo). Changing it later means restarting the study.
+#
+# Selection: purposive, from dataset properties only (no results seen).
+# The held-out set spans the axes the study cares about:
+#   carpet     - stochastic texture
+#   grid       - regular / structured texture
+#   hazelnut   - natural object, free rotation
+#   screw      - small object, free pose, many tiny defects
+#   transistor - aligned object with logical defects (misplaced / missing part)
+version: 1
+selection: purposive
+held_out:
+  textures: [carpet, grid]
+  objects: [hazelnut, screw, transistor]
+dev:
+  textures: [leather, tile, wood]
+  objects: [bottle, cable, capsule, metal_nut, pill, toothbrush, zipper]
