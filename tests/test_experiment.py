@@ -107,3 +107,22 @@ def test_choose_margin_picks_smallest_margin_meeting_target(tmp_path, monkeypatc
     # Smallest grid margin with threshold above 1.08 is 0.09 -> FPR 0, recall 1.
     assert table.margin.iloc[0] == pytest.approx(0.09)
     assert (table.fpr == 0).all() and (table.recall == 1).all()
+
+
+def test_apply_threshold_uses_frozen_margin(tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    scores = tmp_path / "scores"
+    scores.mkdir()
+    rows = [("calibration", 0, 1.0), ("test", 0, 1.10), ("test", 0, 1.20)]
+    rows += [("test", 1, 1.05), ("test", 1, 2.0)]
+    pd.DataFrame(rows, columns=["split", "label", "score"]).to_csv(
+        scores / "wrn50_screw.csv", index=False
+    )
+    apply = _load_script("apply_threshold")
+    args = ["--categories", "screw", "--scores", str(scores), "--out", str(tmp_path)]
+    assert apply.main(args) == 0
+    row = pd.read_csv(tmp_path / "threshold_wrn50_screw.csv").iloc[0]
+    margin = load_config(REPO / "configs" / "base.yaml")["calibration"]["margin"]
+    assert row.margin == margin == 0.13  # read from the config, not re-tuned
+    # threshold 1.13: good 1.20 is flagged (FPR 0.5), defect 1.05 is missed (recall 0.5)
+    assert (row.fpr, row.recall, row.role) == (0.5, 0.5, "held_out")

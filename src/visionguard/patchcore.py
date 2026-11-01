@@ -97,33 +97,38 @@ def greedy_coreset(
     proj_dim: int | None = 128,
     seed: int = 0,
 ) -> torch.Tensor:
-    """Greedy k-centre selection of ``n`` rows of ``x`` (N, D); returns their indices.
+    """Greedy k-centre selection of ``n`` rows of ``x`` (N, D); returns CPU indices.
 
     Each step adds the point farthest from everything selected so far, so the bank
     covers the feature space evenly. Distances use a random Gaussian projection to
     ``proj_dim`` dimensions (Johnson-Lindenstrauss), as in the paper; ``None`` uses
     exact distances.
+
+    Runs on the CPU whatever the device of ``x``: the loop is thousands of small,
+    sequential steps, which is faster on the CPU than on an Apple GPU, and it makes the
+    selection independent of the GPU type. Squared distances come from one
+    matrix-vector product per step (||a||^2 - 2 a.b + ||b||^2), about 10x faster than
+    forming the differences.
     """
     total = x.shape[0]
     if n >= total:
-        return torch.arange(total, device=x.device)
+        return torch.arange(total)
     if n < 1:
         raise ValueError("Coreset must keep at least one point.")
     gen = torch.Generator(device="cpu").manual_seed(seed)
-    z = x.float()
+    z = x.detach().to("cpu", torch.float32)
     if proj_dim is not None and x.shape[1] > proj_dim:
         w = torch.randn(x.shape[1], proj_dim, generator=gen) / math.sqrt(proj_dim)
-        z = z @ w.to(x.device)
+        z = z @ w
+    sq_norm = (z * z).sum(dim=1)
     start = int(torch.randint(total, (1,), generator=gen))
-    selected = torch.empty(n, dtype=torch.long, device=x.device)
+    selected = torch.empty(n, dtype=torch.long)
     selected[0] = start
-    min_dist = torch.linalg.vector_norm(z - z[start], dim=1)
-    # The index stays on the device: indexing with z[idx] would copy idx to the CPU
-    # and stall the GPU on every one of the n iterations.
+    min_dist = (sq_norm - 2.0 * (z @ z[start]) + sq_norm[start]).clamp_min_(0.0)
     for i in range(1, n):
-        idx = torch.argmax(min_dist, dim=0, keepdim=True)  # shape (1,)
-        selected[i : i + 1] = idx
-        dist = torch.linalg.vector_norm(z - torch.index_select(z, 0, idx), dim=1)
+        idx = int(torch.argmax(min_dist))
+        selected[i] = idx
+        dist = sq_norm - 2.0 * torch.mv(z, z[idx]) + sq_norm[idx]
         torch.minimum(min_dist, dist, out=min_dist)
     return selected
 
@@ -260,8 +265,8 @@ class PatchCore:
         if ratio is None or ratio >= 1.0:
             return patches
         n = max(1, round(ratio * patches.shape[0]))
-        idx = greedy_coreset(patches.to(self.device), n, self.proj_dim, self.seed)
-        return patches[idx.cpu()]
+        idx = greedy_coreset(patches, n, self.proj_dim, self.seed)
+        return patches[idx]
 
     # ----------------------------------------------------------------- public API
 
