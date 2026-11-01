@@ -1,8 +1,9 @@
 # VisionGuard evaluation protocol
 
-**Status: DRAFT v0.2.** Four decisions are still open (D1–D4, section 10). Once they are
-settled, this file and `configs/split.yaml` are committed as final **before any experiment
-touches a held-out category**. After that, changes go in the change log with a reason.
+**Status: FINAL v1.0 (2026-11-01).** Decisions D1–D4 are settled (section 10). This file
+and `configs/split.yaml` were committed before any experiment touched a held-out category.
+Every later change goes in the change log with a reason, and no change may be motivated by
+held-out results.
 
 ## 1. Research question
 
@@ -21,7 +22,7 @@ MVTec AD: 15 categories (5 textures, 10 objects), 3,629 defect-free training ima
 against the published numbers by `scripts/inspect_data.py`). Licence CC BY-NC-SA 4.0.
 The dataset has no validation split.
 
-### 2.1 Category split (`configs/split.yaml`, decision D1)
+### 2.1 Category split (`configs/split.yaml`, frozen; decision D1)
 
 | Role | Textures | Objects |
 |---|---|---|
@@ -47,11 +48,18 @@ all training images (`calibration.fraction: 0`), since that is the published pro
 
 ## 3. Preprocessing
 
-* Square resize, then centre crop keeping 87.5% of each side (256 → 224 for WideResNet-50).
-  Vision transformers keep the same crop fraction at their own input size (D2), so every
-  backbone sees the same field of view.
+* Square resize, then centre crop keeping 87.5% of each side, so every backbone sees the
+  same field of view. Input sizes are chosen so every backbone gives a 28×28 patch grid (D2):
+
+  | Backbone | timm model | Resize → crop | Patch grid | Layers |
+  |---|---|---|---|---|
+  | WideResNet-50 | `wide_resnet50_2.tv_in1k` | 256 → 224 | 28×28 (layer 3 upsampled from 14×14) | layer 2 + layer 3 |
+  | Supervised ViT-B/16 | `vit_base_patch16_224.augreg2_in21k_ft_in1k` | 512 → 448 | 28×28 | blocks 4 + 8 of 12 |
+  | DINOv2 ViT-B/14 | `vit_base_patch14_dinov2.lvd142m` | 448 → 392 | 28×28 | blocks 4 + 8 of 12 |
+  | CLIP ViT-B/16 | `vit_base_patch16_clip_224.openai` | 512 → 448 | 28×28 | blocks 4 + 8 of 12 |
+
 * Images: bilinear resampling. Masks: nearest-neighbour, so they stay binary.
-* Normalisation is backbone-specific (ImageNet vs CLIP statistics).
+* Normalisation uses each model's own pretraining statistics (from its timm config).
 * Pixel metrics are computed at the cropped evaluation resolution. A defect cut away by the
   crop keeps its defective label.
 * **Crop check (done, from dataset statistics only).** Of the 1,258 defective test images,
@@ -59,13 +67,27 @@ all training images (`calibration.fraction: 0`), since that is the published pro
   grid, screw, wood 1 each). This is negligible, so the crop stays, which also matches the
   published PatchCore protocol. Per-image values: `results/data/defect_images.csv`.
 
-## 4. Method (finalised in Phase 2)
+## 4. Method
 
-PatchCore without training: patch features from intermediate backbone layers, 3×3 local
-neighbourhood aggregation, greedy coreset subsampling of the memory bank, nearest-neighbour
-distance as patch anomaly score, image score = maximum patch score, anomaly map upsampled
-bilinearly and smoothed with a Gaussian (σ = 4 px). Defaults follow the PatchCore paper;
-any change is chosen on development categories only.
+PatchCore (Roth et al., CVPR 2022), no training. Implemented in `src/visionguard/patchcore.py`;
+defaults follow the paper and anomalib.
+
+1. **Patch features.** Two intermediate layers (table in section 3). Each layer's map gets
+   3×3 average pooling (stride 1) so every patch carries its neighbourhood; the coarser map
+   is upsampled bilinearly to 28×28. Each layer's channels are average-pooled to 1,024 and
+   the two layers are averaged into one 1,024-dimensional vector per patch.
+2. **Memory bank.** All patch vectors of the reference images, reduced by greedy coreset
+   (k-centre) selection to 10% (distances computed on a random 128-dimensional projection,
+   as in the paper). Few-shot banks (E2b) keep every patch, since k ≤ 8 images is small.
+3. **Patch score.** Euclidean distance to the nearest memory-bank vector.
+4. **Image score.** Maximum patch score, reweighted by how isolated its nearest bank vector
+   is (paper eq. 7; softmax over its 9 nearest bank neighbours, as in anomalib). The plain
+   maximum is logged too.
+5. **Anomaly map.** 28×28 patch scores upsampled bilinearly to the input size and smoothed
+   with a Gaussian, σ = 4 px.
+
+ViT layer indices are a starting point. A small layer sweep on development categories is
+allowed in Phase 3, before any held-out run; the outcome goes in the change log.
 
 ## 5. Experiments
 
@@ -75,7 +97,7 @@ any change is chosen on development categories only.
 | **E2a** New category, zero-shot | Union of per-category coresets of the 10 development categories; nothing from the target | Each held-out category's test set | 1 |
 | **E2b** New category, few-shot | k reference images of the target category, k ∈ {1, 2, 4, 8}, full patch bank (no coreset) | Each held-out category's test set | 5 seeds (0–4) |
 | **E3** Acquisition shift | All reference images, clean | Test images with one corruption applied | 5 types × 5 severities |
-| **E3b** Shift recovery (D4) | Clean bank plus k corrupted reference images | Corrupted test images | 5 seeds |
+| **E3b** Shift recovery | Clean coreset plus all patches of k corrupted reference images, k ∈ {1, 4, 8} | Test images with brightness or blur, severity 3 | 5 seeds |
 
 * E1 runs on development categories while choosing settings, and on held-out categories once
   settings are frozen (it is the upper bound of the few-shot curve).
@@ -85,6 +107,8 @@ any change is chosen on development categories only.
   are reported as the result.
 * E2a builds the shared bank as a union of per-category coresets (equal ratio per category)
   because the raw union of ten categories' patches does not fit in memory.
+* E3 and E3b run on all 15 categories with frozen settings (nothing is tuned on corrupted
+  data); held-out categories are also shown separately.
 * E3 corruptions follow the ImageNet-C definitions (Hendrycks & Dietterich, 2019):
   brightness, contrast, Gaussian blur, Gaussian noise, JPEG compression, severities 1–5.
   They are applied to test images only, after resizing to the backbone's input size; blur
@@ -102,9 +126,10 @@ brute-force reference).
 * **FPR at 95% recall** — the lowest image-level false-positive rate that still flags 95%
   of defective images, also expressed as good parts rejected per 1,000. The threshold is
   picked with test labels, so this is an *oracle* operating point (threshold-free, like AUROC).
-* **Deployable operating point (D3)** — threshold set from the category's calibration
-  images only (no defects seen); the rule is chosen on development categories (see D3).
-  Report the realised recall and false-reject rate on the test set.
+* **Deployable operating point** — threshold = (1 + m) × the maximum image score over the
+  category's calibration images, so no defect is seen. The margin m is chosen once on
+  development categories (target: 1% false rejects on their defect-free test images) and
+  then frozen. Report the realised recall and false-reject rate on the test set.
 * **Efficiency (Phase 4)** — memory-bank size (patches and MB), peak memory, per-image
   latency on CPU and GPU at coreset ratios 1%, 10%, 25%.
 
@@ -139,37 +164,35 @@ Implemented in `data.sample_k_shot` and covered by tests:
 * Results tables and figures in `results/` are regenerated from the CSVs by
   `scripts/make_figures.py`, never edited by hand.
 
-## 10. Open decisions
+## 10. Decisions (settled 2026-11-01)
 
-**D1 — Held-out split.** *Proposed:* the purposive split in 2.1, chosen from dataset
-properties before any results: stochastic vs regular texture (carpet, grid); free-pose
-natural object (hazelnut); free-pose object with tiny defects (screw); aligned object with
-logical defects (transistor). *Alternative:* a stratified random draw (2 textures,
-3 objects) with a recorded seed — more neutral, but may land on five easy categories and
-flatten the few-shot curve.
+**D1 — Held-out split: purposive.** Chosen from dataset properties before any results:
+stochastic vs regular texture (carpet, grid); free-pose natural object (hazelnut); free-pose
+object with the smallest defects (screw, median defect 0.29% of the image); aligned object
+with logical defects (transistor). A random draw was rejected because it could land on five
+easy categories and flatten the few-shot curve. Stated as a limitation: the held-out set was
+chosen to be informative, so its numbers are not an unbiased estimate of average difficulty.
 
-**D2 — Backbones.** *Roadmap:* WideResNet-50, DINOv2 ViT-S/14, CLIP ViT-B/16, all at 224 px.
-At 224 px those give 28×28, 16×16 and 14×14 patch grids, and ViT-S is a quarter the size of
-ViT-B, so differences would mix pretraining with model size and spatial resolution.
-*Proposed:* WideResNet-50 at 224 px as the PatchCore reference, plus three ViT-B models that
-differ only in pretraining — supervised (ImageNet-21k → 1k) ViT-B/16, DINOv2 ViT-B/14 and
-CLIP ViT-B/16 — with input sizes chosen so every backbone gives a 28×28 grid (448, 392 and
-448 px). Remaining confound, stated in the limitations: the three were pretrained on
-different data as well as with different objectives, and CLIP runs above its training
-resolution.
+**D2 — Backbones: matched ViT-B.** The roadmap's WideResNet-50, DINOv2 ViT-S/14 and CLIP
+ViT-B/16 at 224 px would give 28×28, 16×16 and 14×14 grids, and ViT-S is a quarter the size
+of ViT-B, so differences would mix pretraining with model size and spatial resolution.
+Instead: WideResNet-50 as the PatchCore reference, plus three ViT-B models that differ in
+pretraining (supervised, DINOv2 self-supervised, CLIP image–text), all at a 28×28 grid
+(section 3). Remaining confounds, stated as limitations: the ViTs were pretrained on
+different data as well as with different objectives, and they run above their training
+resolution (position embeddings interpolated).
 
-**D3 — Calibration split and deployable threshold.** *Proposed:* yes, 10% of each
-category's training normals (section 2.2), so the factory-line paragraph and the demo
-threshold do not rely on test labels. Calibration sets are small (toothbrush 6 images, the
-others 21–39), too few to estimate a 99th percentile, which with fewer than 100 images is
-just the maximum. *Proposed rule:* threshold = max calibration score × (1 + m), with the
-margin m chosen on development categories to reach a target false-reject rate, then frozen.
+**D3 — Calibration split: yes, 10%.** Calibration sets are small (toothbrush 6 images, the
+others 21–39), too few for a 99th-percentile threshold, which with fewer than 100 images is
+just the maximum. Hence the max-plus-margin rule in section 6.
 
-**D4 — E3b shift recovery.** *Proposed:* include if time allows (about one extra day), on
-two corruptions (brightness, blur) at severity 3 with k ∈ {1, 4, 8}, so every shift gets
-the same two questions: how much does it hurt, and how many images bring it back?
+**D4 — E3b: included.** Brightness and Gaussian blur at severity 3; k ∈ {1, 4, 8} corrupted
+reference images (drawn with `sample_k_shot`, corrupted with the same corruption and
+severity) added to the clean coreset; 5 seeds. Every shift then answers the same two
+questions: how much does it hurt, and how many images bring it back?
 
 ## Change log
 
 * v0.1 (2026-10-24) — first draft with open decisions D1–D4.
 * v0.2 (2026-11-01) — Phase 1 data inventory: counts verified, centre crop kept, calibration-size issue added to D3.
+* v1.0 (2026-11-01) — D1–D4 settled; backbone table, method details and threshold rule fixed. Frozen before any experiment.
