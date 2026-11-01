@@ -6,9 +6,53 @@
 pretrained-feature detector keep working, and how few reference images does it need to
 recover on a product it has never seen?
 
-> Status: Phase 2 (baseline reproduction); protocol frozen at v1.0. Demo, results and
-> findings will appear here as the milestones land: M1 baseline (v0.1) → M2 research
-> result (v0.2) → M3 shipped (v1.0).
+> Status: **M1 reached** (working baseline, v0.1). Next: the generalization study (Phase 3).
+
+## Results so far: E1 baseline (WideResNet-50, development categories)
+
+Our PatchCore, 10% coreset, memory bank from 90% of each category's defect-free training
+images (the other 10% are held back for setting a threshold).
+
+| Category | Image AUROC | Pixel AUROC | AU-PRO | FPR @ 95% recall (oracle) | Recall at deployable threshold |
+|---|---|---|---|---|---|
+| leather | 1.000 | 0.993 | 0.970 | 0.000 | 1.000 |
+| tile | 0.995 | 0.959 | 0.809 | 0.000 | 0.667 |
+| wood | 0.989 | 0.950 | 0.876 | 0.053 | 0.833 |
+| bottle | 1.000 | 0.986 | 0.947 | 0.000 | 1.000 |
+| cable | 0.993 | 0.985 | 0.934 | 0.034 | 0.761 |
+| capsule | 0.980 | 0.988 | 0.928 | 0.087 | 0.651 |
+| metal_nut | 0.999 | 0.985 | 0.937 | 0.000 | 0.914 |
+| pill | 0.958 | 0.975 | 0.944 | 0.269 | 0.518 |
+| toothbrush | 0.997 | 0.987 | 0.884 | 0.000 | 0.967 |
+| zipper | 0.996 | 0.988 | 0.952 | 0.031 | 0.958 |
+| **Mean** | **0.991** | **0.980** | **0.918** | **0.047** | **0.827** |
+
+* **Benchmark scores are near-perfect, deployable performance is not.** The last column
+  uses a threshold set without seeing any defect: (1 + m) × the highest score among the
+  held-back defect-free images, with m = 0.13 chosen on these categories so that about 1%
+  of good parts are rejected (3 per 1,000 on average). At that operating point the detector
+  catches 83% of defects on average, and only 52% on pill and 65% on capsule, even though
+  mean image AUROC is 0.991. FPR @ 95% recall looks better only because it picks its
+  threshold with the test labels.
+* **Pill is the weakest category.** Catching 95% of defective pills would also reject 27%
+  of good ones. The missed defects are mostly cracks on the pill's rim.
+* **Some misses are a preprocessing artefact.** On tile, two of the four lowest-scoring
+  defects lie almost entirely outside the 224-pixel centre crop (see
+  `results/data/defect_images.csv`).
+
+Heatmaps for every category are in [`results/e1/heatmaps/`](results/e1/heatmaps): top
+row highest-scoring defects, middle row highest-scoring good parts, bottom row misses.
+
+![Pill heatmaps](results/e1/heatmaps/wrn50_pill.png)
+
+**Check against anomalib 2.7** (same settings, every training image in the memory bank):
+
+| Category | Image AUROC (ours / anomalib) | Pixel AUROC (ours / anomalib) | AU-PRO (ours / anomalib) |
+|---|---|---|---|
+| bottle | 1.000 / 1.000 | 0.986 / 0.981 | 0.947 / 0.929 |
+| capsule | 0.981 / 0.977 | 0.988 / 0.988 | 0.930 / 0.920 |
+
+All differences are under 0.5 AUROC points.
 
 ## Research question
 
@@ -101,6 +145,10 @@ python scripts/run_e1.py --categories bottle capsule --calibration-fraction 0
 `--calibration-fraction 0` puts every training image in the memory bank, as anomalib
 does. Image AUROC should agree within about 1-2 points. Held-out categories are refused
 unless `--allow-held-out` is passed, which is only for runs with frozen settings.
+
+**Deployable threshold.** `python scripts/choose_margin.py` picks the margin m from the
+E1 scores (smallest m with at most 1% false rejects on average over the development
+categories) and writes `results/e1/threshold_wrn50.csv` and `margin_sweep_wrn50.csv`.
 
 ## Repository layout
 

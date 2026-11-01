@@ -83,3 +83,24 @@ def test_run_e1_end_to_end_with_toy_backbone(fake_mvtec, tmp_path, monkeypatch):
     scores = pd.read_csv(tmp_path / "scores" / "toy_carpet.csv")
     assert (scores.split == "calibration").sum() == 2 and (scores.split == "test").sum() == 5
     assert (tmp_path / "heatmaps" / "toy_carpet.png").is_file()
+
+
+def test_choose_margin_picks_smallest_margin_meeting_target(tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    split = load_split(REPO / "configs" / "split.yaml")
+    scores = tmp_path / "scores"
+    scores.mkdir()
+    for category in split.dev:
+        # Calibration max = 1.0; good test parts up to 1.08; defects 1.2 to 2.0.
+        rows = [("calibration", 0, 1.0)] + [("calibration", 0, 0.5)]
+        rows += [("test", 0, s) for s in np.linspace(0.6, 1.08, 10)]
+        rows += [("test", 1, s) for s in np.linspace(1.2, 2.0, 10)]
+        pd.DataFrame(rows, columns=["split", "label", "score"]).to_csv(
+            scores / f"wrn50_{category}.csv", index=False
+        )
+    choose = _load_script("choose_margin")
+    assert choose.main(["--scores", str(scores), "--out", str(tmp_path)]) == 0
+    table = pd.read_csv(tmp_path / "threshold_wrn50.csv")
+    # Smallest grid margin with threshold above 1.08 is 0.09 -> FPR 0, recall 1.
+    assert table.margin.iloc[0] == pytest.approx(0.09)
+    assert (table.fpr == 0).all() and (table.recall == 1).all()

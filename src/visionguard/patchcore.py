@@ -105,10 +105,13 @@ def greedy_coreset(
     selected = torch.empty(n, dtype=torch.long, device=x.device)
     selected[0] = start
     min_dist = torch.linalg.vector_norm(z - z[start], dim=1)
+    # The index stays on the device: indexing with z[idx] would copy idx to the CPU
+    # and stall the GPU on every one of the n iterations.
     for i in range(1, n):
-        idx = torch.argmax(min_dist)
-        selected[i] = idx
-        min_dist = torch.minimum(min_dist, torch.linalg.vector_norm(z - z[idx], dim=1))
+        idx = torch.argmax(min_dist, dim=0, keepdim=True)  # shape (1,)
+        selected[i : i + 1] = idx
+        dist = torch.linalg.vector_norm(z - torch.index_select(z, 0, idx), dim=1)
+        torch.minimum(min_dist, dist, out=min_dist)
     return selected
 
 

@@ -129,7 +129,8 @@ brute-force reference).
 * **Deployable operating point** — threshold = (1 + m) × the maximum image score over the
   category's calibration images, so no defect is seen. The margin m is chosen once on
   development categories (target: 1% false rejects on their defect-free test images) and
-  then frozen. Report the realised recall and false-reject rate on the test set.
+  then frozen: **m = 0.13** (v1.1). Report the realised recall and false-reject rate on the
+  test set.
 * **Efficiency (Phase 4)** — memory-bank size (patches and MB), peak memory, per-image
   latency on CPU and GPU at coreset ratios 1%, 10%, 25%.
 
@@ -196,3 +197,4 @@ questions: how much does it hurt, and how many images bring it back?
 * v0.1 (2026-10-24) — first draft with open decisions D1–D4.
 * v0.2 (2026-11-01) — Phase 1 data inventory: counts verified, centre crop kept, calibration-size issue added to D3.
 * v1.0 (2026-11-01) — D1–D4 settled; backbone table, method details and threshold rule fixed. Frozen before any experiment.
+* v1.1 (2026-11-01) — Threshold margin fixed at m = 0.13 by `scripts/choose_margin.py` on the WRN-50 E1 scores of the development categories (mean false-reject rate 0.3%, target ≤ 1%). Frozen for all later experiments and backbones.

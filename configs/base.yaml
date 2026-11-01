@@ -10,6 +10,7 @@ data:
 calibration:
   fraction: 0.1
   seed: 0
+  margin: 0.13          # threshold = (1 + margin) x max calibration score; frozen (protocol v1.1)
 
 few_shot:
   ks: [1, 2, 4, 8]      # plus k=0 (E2a) and "all" (E1) as the two ends of the curve
