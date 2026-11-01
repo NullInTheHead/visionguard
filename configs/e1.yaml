@@ -1,0 +1,17 @@
+# E1: in-category detection (protocol section 5).
+# Memory bank from the category's own reference images; scored on its test set.
+extends: base.yaml
+experiment: e1
+backbone: wrn50          # wrn50 | vit_sup | dinov2 | clip
+categories: dev          # dev | held_out | all | [explicit, list]
+output: results/e1
+
+patchcore:
+  coreset_ratio: 0.1
+  num_neighbors: 9
+  sigma: 4.0
+  batch_size: 16
+  num_workers: 0         # raise to 2-4 on Kaggle/Colab for faster image loading
+
+heatmaps:
+  per_row: 4             # panels per row: top true positives, false positives, misses

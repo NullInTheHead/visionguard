@@ -1,0 +1,175 @@
+"""Shared plumbing for experiment scripts: metrics rows, CSV logging, run metadata, figures."""
+
+from __future__ import annotations
+
+import datetime as _dt
+import platform
+import subprocess
+from collections.abc import Sequence
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from .data import Preprocess, Sample
+from .metrics import au_pro, fpr_at_recall, image_auroc, pixel_auroc
+
+# ------------------------------------------------------------------ metadata
+
+
+def git_commit(repo: str | Path = ".") -> str:
+    """Short commit hash, with ``-dirty`` if there are uncommitted changes."""
+    try:
+        sha = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        return sha + ("-dirty" if dirty else "")
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def run_metadata(device: str) -> dict:
+    meta = {
+        "timestamp": _dt.datetime.now().isoformat(timespec="seconds"),
+        "git_commit": git_commit(),
+        "python": platform.python_version(),
+        "device": device,
+    }
+    try:
+        import torch
+
+        meta["torch"] = torch.__version__
+        if device.startswith("cuda") and torch.cuda.is_available():
+            meta["device"] = torch.cuda.get_device_name(0)
+    except ImportError:
+        pass
+    try:
+        import timm
+
+        meta["timm"] = timm.__version__
+    except ImportError:
+        pass
+    return meta
+
+
+# ------------------------------------------------------------------ metrics
+
+
+def evaluate(labels, scores, scores_max, masks, maps) -> dict:
+    """The protocol's threshold-free metrics plus the oracle 95%-recall operating point."""
+    op = fpr_at_recall(labels, scores, recall=0.95)
+    return {
+        "image_auroc": image_auroc(labels, scores),
+        "image_auroc_max": image_auroc(labels, scores_max),
+        "pixel_auroc": pixel_auroc(masks, maps),
+        "au_pro": au_pro(masks, maps, fpr_limit=0.3),
+        "fpr_at_95_recall": op.fpr,
+        "rejects_per_1000_at_95_recall": op.false_rejects_per_1000,
+        "threshold_at_95_recall": op.threshold,
+    }
+
+
+# ------------------------------------------------------------------ CSV logging
+
+
+def upsert_rows(path: str | Path, rows: Sequence[dict], key: Sequence[str]) -> pd.DataFrame:
+    """Append rows to a CSV, replacing earlier rows with the same key (reruns don't duplicate)."""
+    path = Path(path)
+    new = pd.DataFrame(list(rows))
+    if path.is_file():
+        old = pd.read_csv(path)
+        if set(key) <= set(old.columns):
+            merged_keys = new[list(key)].astype(str).agg("|".join, axis=1)
+            old_keys = old[list(key)].astype(str).agg("|".join, axis=1)
+            old = old[~old_keys.isin(set(merged_keys))]
+        new = pd.concat([old, new], ignore_index=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    new.to_csv(path, index=False)
+    return new
+
+
+def scores_frame(pred, split: str) -> pd.DataFrame:
+    """Per-image scores for later analysis (thresholds, failure taxonomy)."""
+    return pd.DataFrame(
+        {
+            "id": pred.ids,
+            "split": split,
+            "label": pred.labels,
+            "defect_type": pred.defect_types,
+            "score": pred.scores,
+            "score_max": pred.scores_max,
+        }
+    )
+
+
+# ------------------------------------------------------------------ figures
+
+
+def heatmap_grid(
+    samples: Sequence[Sample],
+    pred,
+    preprocess: Preprocess,
+    out_path: str | Path,
+    per_row: int = 4,
+    title: str = "",
+) -> Path:
+    """Three rows: top-scoring defects (true positives), top-scoring good images (false
+    positives) and lowest-scoring defects (misses). Heatmap colour scale is shared."""
+    import matplotlib.pyplot as plt
+    from PIL import Image
+
+    by_id = {s.id: s for s in samples}
+    order = np.argsort(pred.scores)
+    defect = [i for i in order[::-1] if pred.labels[i] == 1]
+    good = [i for i in order[::-1] if pred.labels[i] == 0]
+    rows = [
+        ("Highest-scoring defects", defect[:per_row]),
+        ("Highest-scoring good parts", good[:per_row]),
+        ("Lowest-scoring defects", list(reversed(defect[-per_row:])) if defect else []),
+    ]
+    vmin, vmax = np.percentile(pred.maps, [1.0, 99.9])
+
+    fig, axes = plt.subplots(3, per_row, figsize=(2.3 * per_row, 7.6), squeeze=False)
+    for r, (label, idxs) in enumerate(rows):
+        for c in range(per_row):
+            ax = axes[r, c]
+            ax.set_axis_off()
+            if c >= len(idxs):
+                continue
+            i = idxs[c]
+            with Image.open(by_id[pred.ids[i]].path) as im:
+                img = preprocess.image(im).transpose(1, 2, 0)
+            ax.imshow(img)
+            ax.imshow(pred.maps[i], cmap="jet", alpha=0.45, vmin=vmin, vmax=vmax)
+            if pred.masks[i].any():
+                ax.contour(pred.masks[i], levels=[0.5], colors="white", linewidths=1.0)
+            ax.set_title(f"{pred.defect_types[i]}  {pred.scores[i]:.2f}", fontsize=7)
+        axes[r, 0].text(
+            -0.08,
+            0.5,
+            label,
+            transform=axes[r, 0].transAxes,
+            rotation=90,
+            va="center",
+            ha="right",
+            fontsize=8,
+        )
+    if title:
+        fig.suptitle(title, fontsize=10)
+    fig.tight_layout()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=110)
+    plt.close(fig)
+    return out_path

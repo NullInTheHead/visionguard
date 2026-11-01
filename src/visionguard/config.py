@@ -19,6 +19,27 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
     return data
 
 
+def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge ``override`` into a copy of ``base`` (override wins)."""
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def load_config(path: str | Path) -> dict[str, Any]:
+    """Load a YAML config, following ``extends: other.yaml`` (relative to the file)."""
+    path = Path(path)
+    cfg = load_yaml(path)
+    parent = cfg.pop("extends", None)
+    if parent is None:
+        return cfg
+    return deep_merge(load_config(path.parent / parent), cfg)
+
+
 @dataclass(frozen=True)
 class CategorySplit:
     dev: tuple[str, ...]
@@ -57,6 +78,22 @@ def _flatten(group: Any, key: str) -> tuple[str, ...]:
                 )
             out.append(c)
     return tuple(out)
+
+
+def resolve_categories(spec: str | list[str], split: CategorySplit) -> list[str]:
+    """``dev``, ``held_out``, ``all`` or an explicit list of category names."""
+    if isinstance(spec, str):
+        if spec == "dev":
+            return list(split.dev)
+        if spec == "held_out":
+            return list(split.held_out)
+        if spec == "all":
+            return sorted(split.dev + split.held_out)
+        spec = [spec]
+    unknown = [c for c in spec if c not in CATEGORIES]
+    if unknown:
+        raise ValueError(f"Unknown categories: {unknown}")
+    return list(spec)
 
 
 def load_split(path: str | Path = "configs/split.yaml") -> CategorySplit:

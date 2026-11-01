@@ -6,8 +6,9 @@
 pretrained-feature detector keep working, and how few reference images does it need to
 recover on a product it has never seen?
 
-> Status: Phase 1 (data understanding). Demo, results and findings will appear here as the
-> milestones land: M1 baseline (v0.1) → M2 research result (v0.2) → M3 shipped (v1.0).
+> Status: Phase 2 (baseline reproduction); protocol frozen at v1.0. Demo, results and
+> findings will appear here as the milestones land: M1 baseline (v0.1) → M2 research
+> result (v0.2) → M3 shipped (v1.0).
 
 ## Research question
 
@@ -72,6 +73,35 @@ Writes per-category and per-defect-type tables (counts, defect sizes, tiny defec
 lost to the centre crop, a check against the published counts) and sample grids with masks
 overlaid to `results/data/`.
 
+## Phase 2: PatchCore baseline (E1)
+
+Our own PatchCore (`src/visionguard/patchcore.py`) on WideResNet-50, run on the 10
+development categories:
+
+```bash
+pip install -e ".[models,dev]"
+python scripts/run_e1.py                              # ~1-3 min per category on a GPU or Apple M-series
+```
+
+Results land in `results/e1/`: `metrics.csv` (one row per category, with the git commit
+and package versions), per-image scores in `scores/`, and heatmap grids in `heatmaps/`
+(highest-scoring defects, highest-scoring good parts, lowest-scoring defects).
+
+**Check against anomalib.** Run anomalib's PatchCore with the same settings on two
+categories, in its own environment (anomalib pins its own torch and lightning versions):
+
+```bash
+python -m venv .venv-anomalib && source .venv-anomalib/bin/activate
+pip install "anomalib>=2.0,<3" pandas
+python scripts/run_anomalib_reference.py --categories bottle capsule
+deactivate && source .venv/bin/activate
+python scripts/run_e1.py --categories bottle capsule --calibration-fraction 0
+```
+
+`--calibration-fraction 0` puts every training image in the memory bank, as anomalib
+does. Image AUROC should agree within about 1-2 points. Held-out categories are refused
+unless `--allow-held-out` is passed, which is only for runs with frozen settings.
+
 ## Repository layout
 
 ```
@@ -81,10 +111,11 @@ src/visionguard/
   data.py           MVTec index, preprocessing, calibration split, nested k-shot sampler
   data_report.py    dataset inventory and sample figures
   metrics.py        image/pixel AUROC, AU-PRO, FPR at 95% recall, fixed-threshold metrics
-  features.py       backbone wrappers (Phase 2-3)
-  patchcore.py      memory bank, coreset, scoring, heatmaps (Phase 2)
+  features.py       frozen backbones (WRN-50, supervised / DINOv2 / CLIP ViT-B) behind one interface
+  patchcore.py      patch embedding, greedy coreset, NN scoring, reweighting, smoothed maps
+  experiment.py     metrics rows, CSV logging with run metadata, heatmap grids
   corruptions.py    acquisition-shift transforms (Phase 3)
-scripts/            setup_mvtec.sh, inspect_data.py, run_e1.py, run_e2.py, run_e3.py
+scripts/            setup_mvtec.sh, inspect_data.py, run_e1.py, run_anomalib_reference.py, (run_e2.py, run_e3.py)
 results/            CSVs and figures (committed)
 tests/              unit tests on a synthetic MVTec tree
 app/                demo (Phase 5)

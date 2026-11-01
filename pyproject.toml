@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 # Heavy deps live in extras so data/metrics code and CI stay light.
 # On Kaggle/Colab, torch is preinstalled; these bounds keep whatever is there.
-models = ["torch>=2.1", "torchvision>=0.16", "timm>=1.0", "faiss-cpu>=1.7.4"]
+models = ["torch>=2.1", "timm>=1.0"]
 demo = ["gradio>=4.0"]
 dev = ["pytest>=7.4", "ruff>=0.4"]
 
