@@ -40,6 +40,23 @@ def test_embed_patches_shape_and_upsampling():
     assert torch.isfinite(emb).all()
 
 
+def test_embed_patches_halves_come_from_separate_layers():
+    """Pin the aggregation: concatenate then pool, NOT an average across layers."""
+    gen = torch.Generator().manual_seed(4)
+    a, b = torch.randn(1, 8, 5, 5, generator=gen), torch.randn(1, 6, 5, 5, generator=gen)
+    emb, _ = embed_patches([a, b], pretrain_dim=8, target_dim=8)
+    emb2, _ = embed_patches([a, b * 3 + 1], pretrain_dim=8, target_dim=8)
+    assert torch.allclose(emb[..., :4], emb2[..., :4])  # first half: layer 1 only
+    assert not torch.allclose(emb[..., 4:], emb2[..., 4:])
+    # Equivalent to the original code: per-layer pooling, concatenate, pool adjacent pairs.
+    per_layer = []
+    for f in (a, b):
+        f = torch.nn.functional.avg_pool2d(f, 3, 1, 1).permute(0, 2, 3, 1).reshape(25, 1, -1)
+        per_layer.append(torch.nn.functional.adaptive_avg_pool1d(f, 8)[:, 0])
+    ref = torch.nn.functional.adaptive_avg_pool1d(torch.cat(per_layer, 1)[:, None], 8)[:, 0]
+    assert torch.allclose(emb[0], ref, atol=1e-6)
+
+
 def test_embed_patches_constant_input_zero_padded_at_borders():
     """Interior patches keep the value; borders are lower because the 3x3 averaging
     pads with zeros, as in the original PatchCore code and anomalib."""

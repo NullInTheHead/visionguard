@@ -11,6 +11,7 @@ Outputs (under --out, default results/e1):
     metrics.csv                         one row per (backbone, category, calibration fraction)
     scores/<backbone>_<category>.csv    per-image scores, test and calibration images
     heatmaps/<backbone>_<category>.png  top true positives, false positives and misses
+    examples/<backbone>_<category>.png  image | ground truth | heatmap, across the score range
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from visionguard.config import load_config, load_split, resolve_categories  # no
 from visionguard.data import by_split, calibration_split, category_type, index_category  # noqa: E402
 from visionguard.experiment import (  # noqa: E402
     evaluate,
+    example_panels,
     heatmap_grid,
     run_metadata,
     scores_frame,
@@ -159,6 +161,13 @@ def main(argv: list[str] | None = None) -> int:
                 out / "heatmaps" / f"{tag}.png",
                 per_row=cfg.get("heatmaps", {}).get("per_row", 4),
                 title=f"{category} | {backbone} | image AUROC {metrics['image_auroc']:.3f}",
+            )
+            example_panels(
+                test,
+                pred,
+                extractor.preprocess,
+                out / "examples" / f"{tag}.png",
+                title=f"{category} | {backbone}",
             )
         print(
             f"  {category:<11} image AUROC {metrics['image_auroc']:.4f}  "

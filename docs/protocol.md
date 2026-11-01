@@ -74,8 +74,13 @@ defaults follow the paper and anomalib.
 
 1. **Patch features.** Two intermediate layers (table in section 3). Each layer's map gets
    3×3 average pooling (stride 1) so every patch carries its neighbourhood; the coarser map
-   is upsampled bilinearly to 28×28. Each layer's channels are average-pooled to 1,024 and
-   the two layers are averaged into one 1,024-dimensional vector per patch.
+   is upsampled bilinearly to 28×28. Each layer's channels are adaptive-average-pooled to
+   1,024; the two vectors are concatenated (2,048) and adaptive-average-pooled to 1,024, as
+   in the original PatchCore code. That last step averages adjacent dimensions *within*
+   each layer's vector (the first 512 output dimensions come from the first layer, the last
+   512 from the second); it is not an average across layers. anomalib instead concatenates
+   the raw channels (1,536 for WRN-50) without reduction; the reproduction check (section 6)
+   shows the two agree within 0.5 AUROC points.
 2. **Memory bank.** All patch vectors of the reference images, reduced by greedy coreset
    (k-centre) selection to 10% (distances computed on a random 128-dimensional projection,
    as in the paper). Few-shot banks (E2b) keep every patch, since k ≤ 8 images is small.
@@ -130,7 +135,7 @@ brute-force reference).
   category's calibration images, so no defect is seen. The margin m is chosen once on
   development categories (target: 1% false rejects on their defect-free test images) and
   then frozen: **m = 0.13** (v1.1). Report the realised recall and false-reject rate on the
-  test set.
+  test set; on development categories these are tuning diagnostics (section 8, rule 2).
 * **Efficiency (Phase 4)** — memory-bank size (patches and MB), peak memory, per-image
   latency on CPU and GPU at coreset ratios 1%, 10%, 25%.
 
@@ -151,8 +156,14 @@ Implemented in `data.sample_k_shot` and covered by tests:
 ## 8. Leakage rules
 
 1. No setting is chosen while looking at held-out category results.
-2. No threshold is chosen on the images it is reported on. Report threshold-free metrics,
-   the oracle operating point (labelled as such), and the calibration-based threshold.
+2. No threshold is chosen on the images it is reported on, with one documented exception:
+   the single margin m (section 6) is tuned on the development categories' defect-free test
+   images, so development-category operating points at m are **in-sample tuning
+   diagnostics**. They are reported as such, next to a leave-one-category-out estimate (m
+   chosen on the other nine development categories). The held-out categories, evaluated
+   with m frozen, are the independent test of the deployable threshold. Report
+   threshold-free metrics, the oracle operating point (labelled as such), and the
+   calibration-based threshold.
 3. Few-shot references never overlap test images (structurally enforced and tested).
 4. Few-shot results always use 5 seeds; a single-seed number is never reported.
 5. The split, this protocol and every config are committed before the runs they govern.
@@ -198,3 +209,4 @@ questions: how much does it hurt, and how many images bring it back?
 * v0.2 (2026-11-01) — Phase 1 data inventory: counts verified, centre crop kept, calibration-size issue added to D3.
 * v1.0 (2026-11-01) — D1–D4 settled; backbone table, method details and threshold rule fixed. Frozen before any experiment.
 * v1.1 (2026-11-01) — Threshold margin fixed at m = 0.13 by `scripts/choose_margin.py` on the WRN-50 E1 scores of the development categories (mean false-reject rate 0.3%, target ≤ 1%). Frozen for all later experiments and backbones.
+* v1.2 (2026-11-01) — After external review: (a) rule 2 of section 8 now states that development-category operating points at m are in-sample tuning diagnostics, reported with a leave-one-category-out estimate (mean recall 0.827, mean false-reject rate 1.25% vs 0.3% in-sample); held-out categories are the independent evaluation. (b) Section 4 corrected to describe the embedding aggregation the code has always used (concatenate, then pool adjacent dimensions, as in the original PatchCore code), not an average across layers. No code or result changed.

@@ -8,7 +8,12 @@ images is at most the target (1%). The chosen m is then frozen for every later e
     python scripts/choose_margin.py                      # WRN-50 E1 scores
     python scripts/choose_margin.py --backbone dinov2
 
-Writes results/e1/threshold_<backbone>.csv (per category, at the chosen m) and
+Because m is tuned on the development categories' test images, their recall and FPR at
+m are in-sample tuning diagnostics. The script also reports a leave-one-category-out
+(LOCO) estimate: for each category, m is chosen on the other nine and applied to it.
+The held-out categories remain the independent evaluation.
+
+Writes results/e1/threshold_<backbone>.csv (per category: in-sample and LOCO) and
 results/e1/margin_sweep_<backbone>.csv (mean FPR and recall for every m on the grid).
 """
 
@@ -46,15 +51,16 @@ def main(argv: list[str] | None = None) -> int:
         per_cat[category] = (df[df.split == "test"], float(cal.score.max()))
 
     grid = np.round(np.arange(0.0, 0.501, 0.01), 2)
+    m = choose(per_cat, grid, args.target_fpr)
     sweep = []
-    for m in grid:
+    for g in grid:
         ops = [
-            operating_point_at(test.label, test.score, (1 + m) * cal_max)
+            operating_point_at(test.label, test.score, (1 + g) * cal_max)
             for test, cal_max in per_cat.values()
         ]
         sweep.append(
             {
-                "margin": m,
+                "margin": g,
                 "mean_fpr": np.mean([o.fpr for o in ops]),
                 "max_fpr": np.max([o.fpr for o in ops]),
                 "mean_recall": np.mean([o.recall for o in ops]),
@@ -62,14 +68,13 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
     sweep = pd.DataFrame(sweep)
-    ok = sweep[sweep.mean_fpr <= args.target_fpr]
-    if ok.empty:
-        raise SystemExit("No margin on the grid reaches the target false-reject rate.")
-    m = float(ok.margin.iloc[0])
 
     rows = []
     for category, (test, cal_max) in per_cat.items():
         op = operating_point_at(test.label, test.score, (1 + m) * cal_max)
+        others = {c: v for c, v in per_cat.items() if c != category}
+        m_loco = choose(others, grid, args.target_fpr)
+        loco = operating_point_at(test.label, test.score, (1 + m_loco) * cal_max)
         rows.append(
             {
                 "backbone": args.backbone,
@@ -80,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
                 "recall": round(op.recall, 4),
                 "fpr": round(op.fpr, 4),
                 "rejects_per_1000": round(op.false_rejects_per_1000, 1),
+                "loco_margin": m_loco,
+                "loco_recall": round(loco.recall, 4),
+                "loco_fpr": round(loco.fpr, 4),
             }
         )
     table = pd.DataFrame(rows)
@@ -89,12 +97,27 @@ def main(argv: list[str] | None = None) -> int:
     sweep.round(4).to_csv(out / f"margin_sweep_{args.backbone}.csv", index=False)
 
     print(f"Chosen margin m = {m:.2f} (smallest with mean FPR <= {args.target_fpr:.0%})\n")
-    print(table[["category", "recall", "fpr", "rejects_per_1000"]].to_string(index=False))
+    cols = ["category", "recall", "fpr", "loco_margin", "loco_recall", "loco_fpr"]
+    print(table[cols].to_string(index=False))
     print(
-        f"\nMean recall {table.recall.mean():.3f}, mean false rejects "
-        f"{table.rejects_per_1000.mean():.1f} per 1,000 good parts"
+        f"\nIn-sample (tuning diagnostic): mean recall {table.recall.mean():.3f}, "
+        f"mean FPR {table.fpr.mean():.4f}"
+        f"\nLeave-one-category-out:        mean recall {table.loco_recall.mean():.3f}, "
+        f"mean FPR {table.loco_fpr.mean():.4f}"
     )
     return 0
+
+
+def choose(per_cat: dict, grid: np.ndarray, target_fpr: float) -> float:
+    """Smallest margin on the grid whose mean FPR over ``per_cat`` is <= target_fpr."""
+    for g in grid:
+        fprs = [
+            operating_point_at(test.label, test.score, (1 + g) * cal_max).fpr
+            for test, cal_max in per_cat.values()
+        ]
+        if np.mean(fprs) <= target_fpr:
+            return float(g)
+    raise SystemExit("No margin on the grid reaches the target false-reject rate.")
 
 
 if __name__ == "__main__":

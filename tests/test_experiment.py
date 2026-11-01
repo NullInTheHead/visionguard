@@ -83,6 +83,7 @@ def test_run_e1_end_to_end_with_toy_backbone(fake_mvtec, tmp_path, monkeypatch):
     scores = pd.read_csv(tmp_path / "scores" / "toy_carpet.csv")
     assert (scores.split == "calibration").sum() == 2 and (scores.split == "test").sum() == 5
     assert (tmp_path / "heatmaps" / "toy_carpet.png").is_file()
+    assert (tmp_path / "examples" / "toy_carpet.png").is_file()
 
 
 def test_choose_margin_picks_smallest_margin_meeting_target(tmp_path, monkeypatch):

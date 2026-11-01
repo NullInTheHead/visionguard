@@ -2,7 +2,8 @@
 
 Steps (protocol section 4):
 1. patch features from two backbone layers, 3x3 neighbourhood averaging, coarser layer
-   upsampled to the finer grid, channels pooled to 1,024 per layer, layers averaged;
+   upsampled to the finer grid, each layer's channels pooled to 1,024, the two vectors
+   concatenated (2,048) and pooled to 1,024 (see ``embed_patches``);
 2. memory bank = patch features of the reference images, reduced by greedy coreset;
 3. patch score = distance to the nearest bank vector;
 4. image score = max patch score, reweighted by how isolated its nearest bank vector is;
@@ -57,7 +58,19 @@ def adaptive_avg_pool_last(x: torch.Tensor, out: int) -> torch.Tensor:
 def embed_patches(
     features: Sequence[torch.Tensor], pretrain_dim: int = 1024, target_dim: int = 1024
 ) -> tuple[torch.Tensor, tuple[int, int]]:
-    """Feature maps -> (B, h*w, target_dim) patch vectors on the grid of the first map."""
+    """Feature maps -> (B, h*w, target_dim) patch vectors on the grid of the first map.
+
+    Per layer: 3x3 average pooling, upsampling to the first map's grid, then adaptive
+    average pooling of the channels to ``pretrain_dim``. The per-layer vectors are then
+    concatenated (L x pretrain_dim) and adaptive-average-pooled to ``target_dim``, as in
+    the original PatchCore code (its ``MeanMapper`` and ``Aggregator``). With two layers
+    and target_dim == pretrain_dim, that last step averages *adjacent dimensions within
+    each layer's vector*: the first half of the output comes only from the first layer,
+    the second half only from the second. It is not an average across layers.
+
+    anomalib differs: it concatenates the raw channels (512 + 1,024 = 1,536 for WRN-50)
+    with no reduction. Our reproduction check agrees with it within 0.5 AUROC points.
+    """
     grid = tuple(features[0].shape[-2:])
     per_layer = []
     for f in features:

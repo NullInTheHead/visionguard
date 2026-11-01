@@ -173,3 +173,48 @@ def heatmap_grid(
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
     return out_path
+
+
+def example_panels(
+    samples: Sequence[Sample],
+    pred,
+    preprocess: Preprocess,
+    out_path: str | Path,
+    n: int = 4,
+    title: str = "",
+) -> Path:
+    """Image | ground truth | predicted heatmap, for ``n`` defective images spread across
+    the score range (best-detected at the top, hardest at the bottom)."""
+    import matplotlib.pyplot as plt
+    from PIL import Image
+
+    by_id = {s.id: s for s in samples}
+    defect = [i for i in np.argsort(pred.scores)[::-1] if pred.labels[i] == 1]
+    if not defect:
+        raise ValueError("No defective images to show.")
+    picks = sorted({defect[round(q * (len(defect) - 1))] for q in np.linspace(0, 1, n)},
+                   key=lambda i: -pred.scores[i])  # fmt: skip
+    vmin, vmax = np.percentile(pred.maps, [1.0, 99.9])
+
+    fig, axes = plt.subplots(len(picks), 3, figsize=(7.2, 2.4 * len(picks)), squeeze=False)
+    for r, i in enumerate(picks):
+        with Image.open(by_id[pred.ids[i]].path) as im:
+            img = preprocess.image(im).transpose(1, 2, 0)
+        axes[r, 0].imshow(img)
+        axes[r, 1].imshow(pred.masks[i], cmap="gray", vmin=0, vmax=1)
+        axes[r, 2].imshow(img)
+        axes[r, 2].imshow(pred.maps[i], cmap="jet", alpha=0.5, vmin=vmin, vmax=vmax)
+        axes[r, 0].set_ylabel(f"{pred.defect_types[i]}\nscore {pred.scores[i]:.2f}", fontsize=8)
+        for ax in axes[r]:
+            ax.set_xticks([])
+            ax.set_yticks([])
+    for ax, name in zip(axes[0], ["Image", "Ground truth", "Predicted heatmap"], strict=True):
+        ax.set_title(name, fontsize=9)
+    if title:
+        fig.suptitle(title, fontsize=10)
+    fig.tight_layout()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=110)
+    plt.close(fig)
+    return out_path
