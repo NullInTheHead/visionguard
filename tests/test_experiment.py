@@ -27,6 +27,8 @@ def test_resolve_categories():
     assert len(resolve_categories("all", split)) == 15
     assert resolve_categories(["screw"], split) == ["screw"]
     assert resolve_categories("bottle", split) == ["bottle"]
+    assert resolve_categories(["held_out"], split) == list(split.held_out)  # from argparse
+    assert resolve_categories(["dev"], split) == list(split.dev)
     with pytest.raises(ValueError):
         resolve_categories(["banana"], split)
 

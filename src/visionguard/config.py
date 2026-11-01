@@ -81,7 +81,13 @@ def _flatten(group: Any, key: str) -> tuple[str, ...]:
 
 
 def resolve_categories(spec: str | list[str], split: CategorySplit) -> list[str]:
-    """``dev``, ``held_out``, ``all`` or an explicit list of category names."""
+    """``dev``, ``held_out``, ``all`` or an explicit list of category names.
+
+    A one-item list holding a keyword (as argparse gives for ``--categories held_out``)
+    counts as the keyword.
+    """
+    if isinstance(spec, list | tuple) and len(spec) == 1:
+        spec = spec[0]
     if isinstance(spec, str):
         if spec == "dev":
             return list(split.dev)
