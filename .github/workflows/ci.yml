@@ -14,9 +14,13 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install (CPU-only torch to keep CI small)
+        # torch and torchvision must come from the same index: timm imports torchvision,
+        # and a PyPI torchvision next to a CPU-index torch fails with
+        # "operator torchvision::nms does not exist".
         run: |
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[models,dev]"
+          python -c "import timm, torch, torchvision; print(torch.__version__, torchvision.__version__)"
       - name: Lint
         run: |
           ruff check .
