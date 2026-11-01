@@ -1,0 +1,16 @@
+category,type,n_train,n_test_good,n_test_defect,n_defect_types,defect_types,image_sizes,modes,median_defect_area_pct,min_defect_area_pct,n_tiny_defects,n_crop_retention_lt50,n_crop_retention_0,counts_match_published
+bottle,object,209,20,63,3,broken_large;broken_small;contamination,900x900,RGB,5.717777777777778,0.575679012345679,0,0,0,True
+cable,object,224,58,92,8,bent_wire;cable_swap;combined;cut_inner_insulation;cut_outer_insulation;missing_cable;missing_wire;poke_insulation,1024x1024,RGB,3.6808013916015625,0.14362335205078125,0,0,0,True
+capsule,object,219,23,109,5,crack;faulty_imprint;poke;scratch;squeeze,1000x1000,RGB,0.4295,0.0371,8,0,0,True
+carpet,texture,280,28,89,5,color;cut;hole;metal_contamination;thread,1024x1024,RGB,1.4757156372070312,0.16498565673828125,0,1,0,True
+grid,texture,264,21,57,5,bent;broken;glue;metal_contamination;thread,1024x1024,L,0.6014823913574219,0.188446044921875,0,1,1,True
+hazelnut,object,391,40,70,4,crack;cut;hole;print,1024x1024,RGB,1.6158103942871094,0.23288726806640625,0,0,0,True
+leather,texture,245,32,92,5,color;cut;fold;glue;poke,1024x1024,RGB,0.4615306854248047,0.08859634399414062,3,0,0,True
+metal_nut,object,220,22,93,4,bent;color;flip;scratch,700x700,RGB,3.6714285714285713,0.4357142857142857,0,0,0,True
+pill,object,267,26,141,7,color;combined;contamination;crack;faulty_imprint;pill_type;scratch,800x800,RGB,1.03265625,0.05046875000000001,8,0,0,True
+screw,object,320,41,119,5,manipulated_front;scratch_head;scratch_neck;thread_side;thread_top,1024x1024,L,0.2879142761230469,0.09851455688476562,4,1,0,True
+tile,texture,230,33,84,5,crack;glue_strip;gray_stroke;oil;rough,840x840,RGB,7.930342970521542,0.8421201814058957,0,3,0,True
+toothbrush,object,60,12,30,1,defective,1024x1024,RGB,1.0778427124023438,0.23813247680664062,0,0,0,True
+transistor,object,213,60,40,4,bent_lead;cut_lead;damaged_case;misplaced,1024x1024,RGB,2.028369903564453,0.22373199462890625,0,0,0,True
+wood,texture,247,19,60,5,color;combined;hole;liquid;scratch,1024x1024,RGB,2.895498275756836,0.2627372741699219,0,1,0,True
+zipper,object,240,32,119,7,broken_teeth;combined;fabric_border;fabric_interior;rough;split_teeth;squeezed_teeth,1024x1024,L,2.35443115234375,0.15916824340820312,0,0,0,True
