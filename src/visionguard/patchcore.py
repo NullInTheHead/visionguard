@@ -27,6 +27,32 @@ from .features import FeatureExtractor
 
 # ------------------------------------------------------------------ patch embedding
 
+_POOL_CACHE: dict[tuple, torch.Tensor] = {}
+
+
+def _pool_matrix(length: int, out: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+    """(length, out) matrix M such that x @ M == F.adaptive_avg_pool1d(x, out).
+
+    Same bins as PyTorch: output i averages inputs floor(i*L/out) .. ceil((i+1)*L/out) - 1.
+    A matrix product runs on every device (Apple MPS cannot adaptive-pool when the
+    sizes are not divisible, e.g. WideResNet's 512 channels -> 1024).
+    """
+    key = (length, out, str(device), dtype)
+    if key not in _POOL_CACHE:
+        m = torch.zeros(length, out, dtype=torch.float64)
+        for i in range(out):
+            start = (i * length) // out
+            end = -((-(i + 1) * length) // out)  # ceil
+            m[start:end, i] = 1.0 / (end - start)
+        # Cast on the CPU first: MPS has no float64.
+        _POOL_CACHE[key] = m.to(dtype).to(device)
+    return _POOL_CACHE[key]
+
+
+def adaptive_avg_pool_last(x: torch.Tensor, out: int) -> torch.Tensor:
+    """Adaptive average pooling over the last dimension, (..., L) -> (..., out)."""
+    return x @ _pool_matrix(x.shape[-1], out, x.device, x.dtype)
+
 
 def embed_patches(
     features: Sequence[torch.Tensor], pretrain_dim: int = 1024, target_dim: int = 1024
@@ -40,11 +66,11 @@ def embed_patches(
         if tuple(f.shape[-2:]) != grid:
             f = F.interpolate(f, size=grid, mode="bilinear", align_corners=False)
         b, c, h, w = f.shape
-        f = f.permute(0, 2, 3, 1).reshape(b * h * w, 1, c)
-        per_layer.append(F.adaptive_avg_pool1d(f, pretrain_dim).squeeze(1))
+        f = f.permute(0, 2, 3, 1).reshape(b * h * w, c)
+        per_layer.append(adaptive_avg_pool_last(f, pretrain_dim))
     stacked = torch.stack(per_layer, dim=1)  # (N, L, pretrain_dim)
     n = stacked.shape[0]
-    pooled = F.adaptive_avg_pool1d(stacked.reshape(n, 1, -1), target_dim).squeeze(1)
+    pooled = adaptive_avg_pool_last(stacked.reshape(n, -1), target_dim)
     b = features[0].shape[0]
     return pooled.reshape(b, grid[0] * grid[1], target_dim), grid
 

@@ -16,6 +16,7 @@ Outputs (under --out, default results/e1):
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -84,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    # Apple GPUs (MPS) lack a few operations; run those on the CPU instead of crashing.
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     import torch  # heavy imports after argument checks
 
     from visionguard.features import FeatureExtractor, pick_device

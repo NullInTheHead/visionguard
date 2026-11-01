@@ -11,6 +11,7 @@ from visionguard.features import BACKBONES, FeatureExtractor  # noqa: E402
 from visionguard.metrics import au_pro, image_auroc  # noqa: E402
 from visionguard.patchcore import (  # noqa: E402
     PatchCore,
+    adaptive_avg_pool_last,
     embed_patches,
     gaussian_blur,
     greedy_coreset,
@@ -19,6 +20,16 @@ from visionguard.patchcore import (  # noqa: E402
 )
 
 # ------------------------------------------------------------------ components
+
+
+@pytest.mark.parametrize(
+    "length,out",
+    [(512, 1024), (1024, 1024), (2048, 1024), (768, 1024), (48, 12), (112, 10), (7, 3)],
+)
+def test_adaptive_pool_matches_pytorch(length, out):
+    x = torch.randn(5, length, generator=torch.Generator().manual_seed(length))
+    ref = torch.nn.functional.adaptive_avg_pool1d(x[:, None, :], out)[:, 0]
+    assert torch.allclose(adaptive_avg_pool_last(x, out), ref, atol=1e-5)
 
 
 def test_embed_patches_shape_and_upsampling():
