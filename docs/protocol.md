@@ -1,19 +1,28 @@
 # VisionGuard evaluation protocol
 
-**Status: FINAL v1.0 (2026-11-01).** Decisions D1–D4 are settled (section 10). This file
+**Status: v1.4 (2026-11-11), frozen.** v1.0 settled decisions D1–D4 (section 10); v1.4
+adds the research questions and the analysis plan for Phase 3 (sections 1, 11–14). This file
 and `configs/split.yaml` were committed before any experiment touched a held-out category.
 Every later change goes in the change log with a reason, and no change may be motivated by
 held-out results.
 
-## 1. Research question
+## 1. Research questions
 
-How well does a pretrained-feature anomaly detector hold up under three distinct kinds of
-shift — new defects on familiar products, entirely new product categories, and changes in
-image acquisition — and how many defect-free reference images does it need to recover
-performance on an unfamiliar product?
+**Guiding question.** Can we build an industrial anomaly detector that remains useful when
+the product, the reference data and the imaging conditions change?
 
-The three shifts are evaluated by separate experiments with separate protocols and are
-**never merged into a single "generalization" number**.
+"Useful" means at a deployable operating point (a threshold fixed without seeing any
+defect), not only by threshold-free ranking metrics such as AUROC.
+
+| | Question | Experiments | Section |
+|---|---|---|---|
+| **RQ1** Product shift | How well does the detector work on a product it has never seen, and how many defect-free reference images restore it? | E2a, E2b | 5 |
+| **RQ2** Reference-data shift | Can we predict and control the false-reject rate on previously unseen products, using a calibration procedure designed without access to their test distributions? | Threshold study on E1/E2 scores | 11 |
+| **RQ3** Imaging shift | How much do lighting, blur, noise and compression hurt, and how many corrupted reference images bring performance back? | E3, E3b | 5 |
+| **RQ4** Backbones (across RQ1–3) | Which pretraining handles tiny defects, lighting changes and few-shot adaptation best, and at what compute cost? | All, per backbone | 12 |
+
+The shifts are evaluated by separate experiments and are **never merged into a single
+"generalization" number**.
 
 ## 2. Data
 
@@ -110,8 +119,13 @@ allowed in Phase 3, before any held-out run; the outcome goes in the change log.
   k = 1, 2, 4, 8 (E2b) to k = all (E1).
 * E2b may also be run on development categories while developing; only held-out numbers
   are reported as the result.
-* E2a builds the shared bank as a union of per-category coresets (equal ratio per category)
-  because the raw union of ten categories' patches does not fit in memory.
+* E2a builds the shared bank as a union of per-category coresets (10% of each development
+  category's reference patches, the E1 setting) because the raw union of ten categories'
+  patches does not fit in memory.
+* E2b uses the nested draws of section 7 from the target category's reference pool
+  (calibration images excluded). It reports threshold-free metrics and the oracle FPR at
+  95% recall. A deployable threshold with only k images is part of the threshold study
+  (section 11), not of E2b.
 * E3 and E3b run on all 15 categories with frozen settings (nothing is tuned on corrupted
   data); held-out categories are also shown separately.
 * E3 corruptions follow the ImageNet-C definitions (Hendrycks & Dietterich, 2019):
@@ -203,6 +217,113 @@ reference images (drawn with `sample_k_shot`, corrupted with the same corruption
 severity) added to the clean coreset; 5 seeds. Every shift then answers the same two
 questions: how much does it hurt, and how many images bring it back?
 
+## 11. Threshold calibration study (RQ2)
+
+**Success criterion.** Not "reach 1% false rejects on these categories", but: for a target
+rate α, does a calibration procedure designed on development categories predict and
+control the false-reject rate on products whose test data it never saw?
+
+Reported per method and per category: the targeted α, the realised false-reject rate on
+defect-free test images, the realised recall, and across categories how often the
+realised rate exceeds α (the violation rate). Targets: α ∈ {1%, 5%}.
+
+**Methods compared.**
+
+1. **Max plus margin** (current rule, m = 0.13): threshold = (1 + m) × the highest
+   calibration score.
+2. **Split conformal**: one fixed memory bank; n defect-free calibration images that never
+   enter it are scored against it; threshold = the ⌈(n + 1)(1 − α)⌉-th smallest calibration
+   score. Under exchangeability of calibration and test defect-free images, a new
+   defect-free image exceeds it with probability at most α. The guarantee is *marginal*
+   (over the random calibration draw, not for one fixed threshold) and is non-trivial only
+   when n ≥ 1/α − 1 (99 images for α = 1%, 19 for α = 5%). Below that, the method has no
+   valid threshold at that α, and that is reported, not hidden.
+3. **Extreme-value tail fit**: a generalized Pareto distribution fitted to the upper tail of
+   the calibration scores, threshold = its (1 − α) quantile. No finite-sample guarantee;
+   assumes the fitted tail extends to unseen products.
+4. **Cross-fitted calibration** (K-fold over the reference images: each fold scored against
+   a bank built from the other folds): more calibration scores, but they come from
+   different banks, are dependent, and are not exchangeable with a test score against the
+   full bank. Reported as a **heuristic, with no guarantee claimed**. Known cross-fitted
+   variants carry weaker guarantees (for example 1 − 2α for jackknife+ in regression);
+   none is claimed here without a matching result for this setting.
+
+**Calibration size.** Run on development categories with calibration fractions 10%, 25%
+and 50% of the training images, to measure the trade-off between a larger calibration set
+(a valid conformal threshold) and a smaller memory bank (lower AUROC). Categories with too
+few training images for a given fraction are reported as such.
+
+**Exchangeability under shift.** Each method is also applied to E3 corrupted test images,
+with calibration on clean images, to measure how the false-reject rate breaks when the
+exchangeability assumption fails.
+
+**Leakage restriction.** The held-out categories' results at m = 0.13 have been seen
+(protocol v1.3). Therefore any new rule, and any parameter of it, is designed on the
+development categories only, with leave-one-category-out estimates; its held-out numbers
+are labelled *post-hoc*. A clean independent test needs data not yet looked at
+(decision D5).
+
+## 12. Backbone comparison (RQ4)
+
+Each backbone is reported on four dimensions, not one AUROC. Defect-size bins are fixed
+here, from the Phase 1 inventory (area as a share of the image):
+
+| Bin | Defect area | Meaning |
+|---|---|---|
+| Tiny | < 0.128% | smaller than one cell of the 28 × 28 patch grid |
+| Small | 0.128% to 1% | |
+| Medium | 1% to 5% | |
+| Large | ≥ 5% | |
+
+1. **Tiny defects**: per size bin, image AUROC (defective images in the bin against all
+   defect-free images) and AU-PRO (defective images in the bin plus all defect-free
+   images), on E1.
+2. **Lighting robustness**: E3 brightness and contrast curves, severities 1–5.
+3. **Few-shot adaptation**: E2b curves, k = 1, 2, 4, 8, mean ± standard deviation over seeds.
+4. **Compute cost**: the measurements of section 13.
+
+The ViT layer sweep allowed by section 4 is run on development categories before any
+held-out ViT result; its outcome goes in the change log.
+
+## 13. Efficiency measurements
+
+Logged for every run (E1, E2, E3), so cost is measured on the same runs as accuracy:
+
+* **Fit**: feature-extraction time and coreset time, separately.
+* **Scoring, per image**: image loading, feature extraction (backbone and patch
+  embedding), nearest-neighbour search (including reweighting), and map post-processing,
+  each timed with the device synchronised.
+* **Memory bank**: number of patches and size in MB.
+* **Peak memory**: peak process memory (resident set size), and peak device memory where
+  the device reports it (CUDA). Apple MPS reports only current allocation, which is logged
+  as such.
+
+Phase 4 adds batch-size-1 latency on CPU and GPU and the coreset sweep (1%, 10%, 25%).
+
+## 14. Related work and positioning
+
+* PatchCore (Roth et al., CVPR 2022) established in-category detection on MVTec AD; E1
+  reproduces it and is a validation step, not a contribution.
+* Few-shot PatchCore has been tuned across CNN backbones, resolution and coreset
+  (Santos et al., 2023, "Optimizing PatchCore for few/many-shot anomaly detection"), and
+  WinCLIP (Jeong et al., CVPR 2023) addresses zero- and few-shot detection with CLIP.
+  Both report threshold-free metrics.
+* Robustness to real acquisition changes is benchmarked by RAD (2024; lighting, viewpoint,
+  blur) and MVTec AD 2 (2025; test sets with lighting changes).
+* Conformal false-alarm control for industrial anomaly detection has been studied on sensor
+  time series; we found no study of controlling false rejects on unseen *image* products.
+
+Positioning: VisionGuard's contribution is RQ2 (deployable false-reject control under
+product, reference-data and imaging shift) and the matched-backbone comparison of RQ4
+(model size and patch grid held fixed, pretraining varied). A full literature search is
+done before any novelty claim.
+
+## 15. Open decision
+
+**D5 — Clean test set for RQ2.** Options: VisA (12 products) or MVTec AD 2 (8 scenarios,
+including lighting changes). Settled before any new threshold rule is evaluated on data
+outside the development categories.
+
 ## Change log
 
 * v0.1 (2026-10-24) — first draft with open decisions D1–D4.
@@ -211,3 +332,4 @@ questions: how much does it hurt, and how many images bring it back?
 * v1.1 (2026-11-01) — Threshold margin fixed at m = 0.13 by `scripts/choose_margin.py` on the WRN-50 E1 scores of the development categories (mean false-reject rate 0.3%, target ≤ 1%). Frozen for all later experiments and backbones.
 * v1.2 (2026-11-01) — After external review: (a) rule 2 of section 8 now states that development-category operating points at m are in-sample tuning diagnostics, reported with a leave-one-category-out estimate (mean recall 0.827, mean false-reject rate 1.25% vs 0.3% in-sample); held-out categories are the independent evaluation. (b) Section 4 corrected to describe the embedding aggregation the code has always used (concatenate, then pool adjacent dimensions, as in the original PatchCore code), not an average across layers. No code or result changed.
 * v1.3 (2026-11-01) — Coreset implementation: computed on the CPU with squared distances from one matrix-vector product per step (about 10x faster; selection no longer depends on the GPU type). Floating-point differences break some near-ties differently, so a few late coreset picks change; E1 is rerun on all 15 categories with this code. The margin stays frozen at m = 0.13: it is not re-tuned, because a preview of the held-out threshold results (mean recall 0.80, carpet false-reject rate 14%) has been seen.
+* v1.4 (2026-11-11) — Research questions RQ1–RQ4; threshold calibration study with its success criterion, the precise conformal guarantee and the leakage restriction (section 11); backbone reporting on four dimensions with frozen defect-size bins (section 12); efficiency measurements logged in every run (section 13); related work (section 14); open decision D5. E2a coreset ratio fixed at 10%; E2b reports threshold-free metrics only. No setting of v1.3 changed.
