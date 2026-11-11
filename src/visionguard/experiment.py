@@ -251,48 +251,64 @@ def recovery_figure(
     out_path: str | Path,
     metric: str = "image_auroc",
     title: str = "",
+    series: Sequence[tuple[str, str | None]] = (("e2b", None),),
+    include_zero_shot: bool = True,
 ) -> Path:
-    """Few-shot recovery curve per category: k = 0 (E2a), 1-8 (E2b, mean ± sd over seeds)
-    and k = all (E1). The x axis is categorical, so the uneven steps are shown evenly."""
+    """Few-shot recovery curve per category: k = 0 (E2a), 1-8 (mean ± sd over seeds) for
+    each experiment in ``series`` (e.g. E2b and E2c variants), and k = all (E1) as a
+    dashed line. The x axis is categorical, so the uneven steps are shown evenly."""
     import matplotlib.pyplot as plt
 
     names = {"image_auroc": "Image AUROC", "au_pro": "AU-PRO", "pixel_auroc": "Pixel AUROC"}
     label = names.get(metric, metric)
     cats = list(dict.fromkeys(e2.category))
+    ks = sorted(e2[e2.experiment.isin([e for e, _ in series])].k.unique())
+    has_zero = include_zero_shot and (e2.experiment == "e2a").any()
+    xlabels = (["0"] if has_zero else []) + [str(int(k)) for k in ks]
+    offset = 1 if has_zero else 0
     ncols = min(3, len(cats))
     nrows = int(np.ceil(len(cats) / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(3.6 * ncols, 2.9 * nrows), squeeze=False)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.8 * ncols, 2.9 * nrows), squeeze=False)
     for ax in axes.ravel():
         ax.set_visible(False)
+    lows = []
     for ax, cat in zip(axes.ravel(), cats, strict=False):
         ax.set_visible(True)
         d = e2[e2.category == cat]
-        ks = sorted(d[d.experiment == "e2b"].k.unique())
-        labels, means, sds = [], [], []
-        zero = d[d.experiment == "e2a"]
-        if len(zero):
-            labels.append("0")
-            means.append(zero[metric].mean())
-            sds.append(0.0)
-        for k in ks:
-            v = d[(d.experiment == "e2b") & (d.k == k)][metric]
-            labels.append(str(int(k)))
-            means.append(v.mean())
-            sds.append(v.std(ddof=1) if len(v) > 1 else 0.0)
-        x = np.arange(len(labels))
-        ax.errorbar(x, means, yerr=sds, marker="o", ms=4, capsize=3, lw=1.2, color="C0")
+        for n, (experiment, name) in enumerate(series):
+            xs, means, sds = [], [], []
+            if n == 0 and has_zero:
+                zero = d[d.experiment == "e2a"][metric]
+                if len(zero):
+                    xs.append(0)
+                    means.append(zero.mean())
+                    sds.append(0.0)
+            for i, k in enumerate(ks):
+                v = d[(d.experiment == experiment) & (d.k == k)][metric]
+                if len(v):
+                    xs.append(i + offset)
+                    means.append(v.mean())
+                    sds.append(v.std(ddof=1) if len(v) > 1 else 0.0)
+            if xs:
+                ax.errorbar(np.array(xs) + 0.06 * n, means, yerr=sds, marker="o", ms=4,
+                            capsize=3, lw=1.2, color=f"C{n}", label=name)  # fmt: skip
+                lows.append(min(m - s for m, s in zip(means, sds, strict=True)))
         if e1 is not None:
             full = e1[(e1.category == cat) & (e1.calibration_fraction == 0.1)][metric]
             if len(full):
                 ax.axhline(full.iloc[0], color="0.4", ls="--", lw=1)
-                ax.text(x[-1], full.iloc[0], " all", va="center", fontsize=8, color="0.3")
-        ax.set_xticks(x, labels)
+                ax.annotate("all", (1.0, full.iloc[0]), xycoords=("axes fraction", "data"),
+                            xytext=(-3, 3), textcoords="offset points", ha="right",
+                            fontsize=8, color="0.3")  # fmt: skip
+        ax.set_xticks(range(len(xlabels)), xlabels)
         ax.set_xlabel("reference images of the new product (k)", fontsize=8)
         ax.set_ylabel(label, fontsize=8)
         ax.set_title(cat, fontsize=9)
-        ax.set_ylim(min(0.5, min(means) - 0.05), 1.01)
+        ax.set_ylim(min([0.5] + [v - 0.03 for v in lows]), 1.02)
         ax.tick_params(labelsize=8)
         ax.grid(alpha=0.3)
+        if len(series) > 1 and any(name for _, name in series):
+            ax.legend(fontsize=7, loc="lower right")
     if title:
         fig.suptitle(title, fontsize=10)
     fig.tight_layout()

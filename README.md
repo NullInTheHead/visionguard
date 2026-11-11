@@ -230,6 +230,20 @@ Each test set is embedded once and scored against all 21 banks. Results land in
 in `scores/`, and recovery curves `recovery_wrn50_image_auroc.png` and
 `recovery_wrn50_au_pro.png`, with the E1 result as the k = all reference line.
 
+**E2c, rotation diagnostic (post-hoc, protocol section 16.1).** Few-shot screw stays near
+chance and few-shot grid drops below zero-shot. E2c tests whether pose variation is the
+cause, by adding rotated copies of the k reference images to the bank:
+
+```bash
+python scripts/run_e2.py --rotations rot90
+python scripts/run_e2.py --rotations rot45
+```
+
+The design and per-product predictions were committed before any run. Results go to the
+same `metrics.csv` (experiments `e2c-rot90`, `e2c-rot45`), scores to
+`scores/<backbone>_<category>_<rotations>.csv`, and the comparison to
+`rotation_wrn50_image_auroc.png`.
+
 Every run also logs the efficiency measurements of protocol section 13: feature-extraction,
 nearest-neighbour and post-processing time per image, memory-bank size and peak memory.
 

@@ -10,12 +10,16 @@ The target's test set is embedded once and scored against all 21 banks.
     python scripts/run_e2.py                       # WRN-50, held-out targets
     python scripts/run_e2.py --backbone dinov2     # Phase 3, other backbones
     python scripts/run_e2.py --skip-zero-shot      # E2b only
+    python scripts/run_e2.py --rotations rot90     # E2c: post-hoc rotation diagnostic
+    python scripts/run_e2.py --rotations rot45     #      (protocol section 16.1)
 
 Outputs (under --out, default results/e2):
     metrics.csv                         one row per (backbone, category, experiment, k, seed)
     scores/<backbone>_<category>.csv    per-image scores for every bank
     recovery_<backbone>_image_auroc.png recovery curves, k = 0 to 8, with E1 (k = all)
     recovery_<backbone>_au_pro.png
+    rotation_<backbone>_image_auroc.png  E2b vs E2c (written once an E2c run exists)
+    E2c scores go to scores/<backbone>_<category>_<rotations>.csv
 """
 
 from __future__ import annotations
@@ -56,6 +60,12 @@ def parse_args(argv):
     p.add_argument("--ks", nargs="*", type=int)
     p.add_argument("--seeds", nargs="*", type=int)
     p.add_argument("--skip-zero-shot", action="store_true")
+    p.add_argument(
+        "--rotations",
+        choices=["none", "rot90", "rot45"],
+        default="none",
+        help="E2c post-hoc diagnostic: add rotated copies of the references to the bank",
+    )
     p.add_argument("--no-cache", action="store_true", help="rebuild coresets, do not save")
     p.add_argument("--bank-categories", nargs="*", help=argparse.SUPPRESS)  # tests
     p.add_argument("--no-pretrained", action="store_true", help=argparse.SUPPRESS)  # tests
@@ -88,7 +98,9 @@ def main(argv: list[str] | None = None) -> int:
     import torch
 
     from visionguard.banks import (
+        ROTATIONS,
         embed_references,
+        embed_references_rotated,
         few_shot_draws,
         reference_pool,
         shared_bank,
@@ -107,6 +119,10 @@ def main(argv: list[str] | None = None) -> int:
         num_workers=pc["num_workers"],
     )
     meta = run_metadata(str(device))
+    rotated = args.rotations != "none"
+    few_label = f"e2c-{args.rotations}" if rotated else "e2b"
+    if rotated:
+        print("E2c is a post-hoc diagnostic (protocol section 16.1); zero-shot is skipped.")
     print(f"E2 | backbone={backbone} device={meta['device']} targets={targets} ks={ks} "
           f"seeds={seeds}")  # fmt: skip
 
@@ -147,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
             return metrics
 
         # E2a: zero-shot, bank from other products only.
-        if not args.skip_zero_shot:
+        if not (args.skip_zero_shot or rotated):
             reset_device_peak(device)
             bank, sources = shared_bank(model, backbone, root, bank_sources, category,
                                         pc["coreset_ratio"], cal_fraction, cal_seed,
@@ -161,7 +177,11 @@ def main(argv: list[str] | None = None) -> int:
 
         # E2b: few-shot, k images of the target, full patch bank.
         draws = few_shot_draws(reference, ks, seeds)
-        ref_emb = embed_references(model, [s for d in draws.values() for s in d])
+        used = [s for d in draws.values() for s in d]
+        if rotated:
+            ref_emb = embed_references_rotated(model, used, ROTATIONS[args.rotations])
+        else:
+            ref_emb = embed_references(model, used)
         for k in ks:
             aurocs = []
             for seed in seeds:
@@ -169,8 +189,9 @@ def main(argv: list[str] | None = None) -> int:
                 images = draws[(k, seed)]
                 model.set_memory_bank(torch.cat([ref_emb[s.id] for s in images]))
                 model.fit_timing = {}
-                m = record("e2b", k, seed, {"reference_ids": ";".join(s.id for s in images)},
-                           model.score_embedded(test_set))  # fmt: skip
+                extra = {"reference_ids": ";".join(s.id for s in images),
+                         "rotations": args.rotations}  # fmt: skip
+                m = record(few_label, k, seed, extra, model.score_embedded(test_set))
                 aurocs.append(m["image_auroc"])
             sd = np.std(aurocs, ddof=1) if len(aurocs) > 1 else 0.0
             print(f"  {category:<11} k={k:<6} image AUROC {np.mean(aurocs):.4f} ± {sd:.4f}")
@@ -178,7 +199,9 @@ def main(argv: list[str] | None = None) -> int:
         upsert_rows(out / "metrics.csv", rows,
                     key=["backbone", "category", "experiment", "k", "seed"])  # fmt: skip
         (out / "scores").mkdir(parents=True, exist_ok=True)
-        pd.concat(frames).to_csv(out / "scores" / f"{backbone}_{category}.csv", index=False)
+        suffix = f"_{args.rotations}" if rotated else ""
+        pd.concat(frames).to_csv(out / "scores" / f"{backbone}_{category}{suffix}.csv",
+                                 index=False)  # fmt: skip
         del test_set, ref_emb
 
     results = pd.read_csv(out / "metrics.csv")
@@ -187,18 +210,31 @@ def main(argv: list[str] | None = None) -> int:
     e1 = pd.read_csv(e1_path) if e1_path.is_file() else None
     if e1 is not None:
         e1 = e1[e1.backbone == backbone]
-    for metric in ["image_auroc", "au_pro"]:
-        recovery_figure(mine, e1, out / f"recovery_{backbone}_{metric}.png", metric=metric,
-                        title=f"E2 recovery curves | {backbone}")  # fmt: skip
+    base_runs = mine[mine.experiment.isin(["e2a", "e2b"])]
+    if (base_runs.experiment == "e2b").any():
+        for metric in ["image_auroc", "au_pro"]:
+            recovery_figure(base_runs, e1, out / f"recovery_{backbone}_{metric}.png",
+                            metric=metric, title=f"E2 recovery curves | {backbone}")  # fmt: skip
+    series = [(e, lab) for e, lab in [("e2b", "no rotation"), ("e2c-rot90", "rot90"),
+                                      ("e2c-rot45", "rot45")]
+              if (mine.experiment == e).any()]  # fmt: skip
+    if len(series) > 1:
+        recovery_figure(mine, e1, out / f"rotation_{backbone}_image_auroc.png",
+                        series=series, include_zero_shot=False,
+                        title=f"E2c rotation diagnostic (post-hoc) | {backbone}")  # fmt: skip
 
+    this_run = mine[mine.experiment.isin(["e2a", few_label] if not rotated else [few_label])]
     summary = (
-        mine.assign(step=np.where(mine.experiment == "e2a", "k=0", "k=" + mine.k.astype(str)))
+        this_run.assign(
+            step=np.where(this_run.experiment == "e2a", "k=0", "k=" + this_run.k.astype(str))
+        )
         .groupby(["category", "step"])["image_auroc"]
         .mean()
         .unstack()
     )
     order = [c for c in ["k=0"] + [f"k={k}" for k in ks] if c in summary.columns]
-    print("\nMean image AUROC by category and k:\n" + summary[order].round(4).to_string())
+    print(f"\nMean image AUROC by category and k ({few_label}):\n"
+          + summary[order].round(4).to_string())  # fmt: skip
     return 0
 
 

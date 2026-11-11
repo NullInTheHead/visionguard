@@ -102,3 +102,91 @@ def test_run_e2_refuses_a_held_out_bank_source(two_products, tmp_path, monkeypat
     args = ["--root", str(two_products), "--categories", "screw", "--bank-categories",
             "carpet", "--backbone", "toy", "--no-pretrained", "--out", str(tmp_path)]  # fmt: skip
     assert _load_script("run_e2").main(args) == 2
+
+
+# ------------------------------------------------------------------ E2c rotations
+
+
+def test_valid_patch_mask():
+    from visionguard.banks import valid_patch_mask
+
+    assert valid_patch_mask(224, (28, 28), 0).all()
+    assert valid_patch_mask(224, (28, 28), 90).all()
+    m = valid_patch_mask(224, (28, 28), 45).reshape(28, 28)
+    assert not m[0, 0] and not m[27, 27] and m[14, 14]
+    assert 0.3 < m.float().mean() < 0.9
+
+
+def test_rotated_references_contain_the_unrotated_ones(two_products):
+    from visionguard.banks import ROTATIONS, embed_references, embed_references_rotated
+
+    model = _model()
+    reference, _, _ = reference_pool(two_products, "screw", 0.2, 0)
+    plain = embed_references(model, reference[:2])
+    rot90 = embed_references_rotated(model, reference[:2], ROTATIONS["rot90"])
+    rot45 = embed_references_rotated(model, reference[:2], ROTATIONS["rot45"])
+    for i, e in plain.items():
+        assert rot90[i].shape == (4 * 49, 1024)
+        torch.testing.assert_close(rot90[i][:49], e)  # angle 0 comes first, unchanged
+        assert 49 < rot45[i].shape[0] < 8 * 49  # corner patches of 45-degree turns dropped
+
+
+@pytest.fixture()
+def bars(tmp_path):
+    """Good parts: a dark bar, horizontal or vertical. Defects: a faint mark on the bar.
+    Training images are all horizontal, so few-shot references never show a vertical bar."""
+    import numpy as np
+    from PIL import Image
+
+    rng = np.random.default_rng(0)
+    root, size = tmp_path / "bars", 64
+
+    def part(vertical: bool, defect: bool) -> np.ndarray:
+        img = 150 + rng.normal(0, 3, (size, size))
+        if vertical:
+            img[:, 28:36] = 40
+        else:
+            img[28:36, :] = 40
+        mask = np.zeros((size, size), bool)
+        if defect:
+            r, c = (rng.integers(12, 44), 32) if vertical else (32, rng.integers(12, 44))
+            mask[r - 4 : r + 4, c - 4 : c + 4] = True
+            img[mask] = 75  # faint: subtler than a change of pose, as on real screws
+        rgb = np.clip(np.repeat(img[..., None], 3, axis=2), 0, 255).astype(np.uint8)
+        return rgb, mask
+
+    def save(arr, path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(arr).save(path)
+
+    cat = root / "screw"
+    for i in range(10):
+        save(part(False, False)[0], cat / "train" / "good" / f"{i:03d}.png")
+    for i in range(8):
+        save(part(i % 2 == 1, False)[0], cat / "test" / "good" / f"{i:03d}.png")
+        img, mask = part(i % 2 == 1, True)
+        save(img, cat / "test" / "blob" / f"{i:03d}.png")
+        save((mask * 255).astype("uint8"), cat / "ground_truth" / "blob" / f"{i:03d}_mask.png")
+    return root
+
+
+def test_rotation_bank_fixes_pose_on_a_synthetic_part(bars, tmp_path, monkeypatch):
+    """The mechanism the diagnostic tests: unseen pose looks anomalous; rotations fix it."""
+    monkeypatch.chdir(REPO)
+    out = tmp_path / "e2"
+    common = ["--root", str(bars), "--categories", "screw", "--backbone", "toy",
+              "--no-pretrained", "--out", str(out), "--ks", "1", "--seeds", "0", "1",
+              "--skip-zero-shot", "--no-cache"]  # fmt: skip
+    run_e2 = _load_script("run_e2")
+    assert run_e2.main(common) == 0
+    assert run_e2.main(common + ["--rotations", "rot90"]) == 0
+    df = pd.read_csv(out / "metrics.csv")
+    plain = df[df.experiment == "e2b"].image_auroc.mean()
+    rotated = df[df.experiment == "e2c-rot90"].image_auroc.mean()
+    assert rotated > plain + 0.2, (plain, rotated)
+    assert (df[df.experiment == "e2c-rot90"].bank_patches == 4 * 49).all()
+    assert (df[df.experiment == "e2c-rot90"].rotations == "rot90").all()
+    # E2c writes its own scores file and leaves the E2b one in place.
+    assert (out / "scores" / "toy_screw.csv").is_file()
+    assert (out / "scores" / "toy_screw_rot90.csv").is_file()
+    assert (out / "rotation_toy_image_auroc.png").is_file()
