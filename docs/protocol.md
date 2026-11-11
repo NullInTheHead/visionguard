@@ -1,7 +1,8 @@
 # VisionGuard evaluation protocol
 
-**Status: v1.4 (2026-11-11), frozen.** v1.0 settled decisions D1–D4 (section 10); v1.4
-adds the research questions and the analysis plan for Phase 3 (sections 1, 11–14). This file
+**Status: v1.5 (2026-11-11), frozen.** v1.0 settled decisions D1–D4 (section 10); v1.4
+adds the research questions and the analysis plan for Phase 3 (sections 1, 11–14); v1.5
+adds post-hoc diagnostics (section 16). This file
 and `configs/split.yaml` were committed before any experiment touched a held-out category.
 Every later change goes in the change log with a reason, and no change may be motivated by
 held-out results.
@@ -324,6 +325,50 @@ done before any novelty claim.
 including lighting changes). Settled before any new threshold rule is evaluated on data
 outside the development categories.
 
+## 16. Post-hoc diagnostics
+
+Experiments designed **after** seeing held-out results, to explain a failure. They are
+labelled post-hoc wherever reported, set no frozen setting, and are not presented as a
+tuned method.
+
+### 16.1 Rotation-augmented few-shot banks (E2c)
+
+**Observation that motivated it (E2, WRN-50).** Few-shot screw stays near chance
+(image AUROC 0.55 at k = 8, against 0.975 with all images), and few-shot grid falls below
+zero-shot at k = 1–4. Yet screw's pixel AUROC is 0.88–0.92: the defect is the hottest
+region inside each image, but good screws score as high as defective ones. Good-screw
+scores spread over about 1.0 (10th–90th percentile at k = 8), while a defect adds about
+0.3 in E1. Hazelnut, which also lies at random angles but is roughly round, recovers to
+0.985 by k = 8.
+
+**Hypothesis.** Few-shot adaptation is limited by pose variation of the good parts: with
+k references, a good part at a new orientation is far from every stored patch.
+
+**Design.** E2b exactly (same targets, k, seeds and draws), but each reference image also
+enters the memory bank rotated about its centre. Two variants:
+
+* **rot90**: 0°, 90°, 180°, 270°. Exact on the square crop, no empty corners.
+* **rot45**: 0° to 315° in 45° steps. Rotation leaves empty corners; patches whose cell, or
+  any cell within 2 cells of it, touches an empty pixel are left out of the bank.
+
+Rotation is applied to the preprocessed (cropped) reference image; test images are never
+rotated.
+
+**Predictions, recorded before any run.**
+
+| Product | Prediction | Why |
+|---|---|---|
+| screw | Clear gain at every k, larger for rot45 than rot90 | Elongated part, any orientation |
+| grid | Gain | Pattern orientation shifts between photos |
+| hazelnut | Little change | Roughly round: rotation changes little |
+| carpet | Little change | Random texture, already recovered at k = 1 |
+| transistor | No gain, possibly a loss | Always photographed upright; a rotated good transistor can resemble a misplaced-part defect |
+
+**Reading the outcome.** If screw does not improve, pose is not the main cause, and the
+hypothesis is rejected as stated. If screw improves and transistor does not, pose
+variation explains the gap, and the backbone is not the main limit for these products.
+Either outcome is reported.
+
 ## Change log
 
 * v0.1 (2026-10-24) — first draft with open decisions D1–D4.
@@ -333,3 +378,4 @@ outside the development categories.
 * v1.2 (2026-11-01) — After external review: (a) rule 2 of section 8 now states that development-category operating points at m are in-sample tuning diagnostics, reported with a leave-one-category-out estimate (mean recall 0.827, mean false-reject rate 1.25% vs 0.3% in-sample); held-out categories are the independent evaluation. (b) Section 4 corrected to describe the embedding aggregation the code has always used (concatenate, then pool adjacent dimensions, as in the original PatchCore code), not an average across layers. No code or result changed.
 * v1.3 (2026-11-01) — Coreset implementation: computed on the CPU with squared distances from one matrix-vector product per step (about 10x faster; selection no longer depends on the GPU type). Floating-point differences break some near-ties differently, so a few late coreset picks change; E1 is rerun on all 15 categories with this code. The margin stays frozen at m = 0.13: it is not re-tuned, because a preview of the held-out threshold results (mean recall 0.80, carpet false-reject rate 14%) has been seen.
 * v1.4 (2026-11-11) — Research questions RQ1–RQ4; threshold calibration study with its success criterion, the precise conformal guarantee and the leakage restriction (section 11); backbone reporting on four dimensions with frozen defect-size bins (section 12); efficiency measurements logged in every run (section 13); related work (section 14); open decision D5. E2a coreset ratio fixed at 10%; E2b reports threshold-free metrics only. No setting of v1.3 changed.
+* v1.5 (2026-11-11) — Section 16: post-hoc diagnostics; 16.1 rotation-augmented few-shot banks (E2c), with design and predictions recorded before any run. No frozen setting changed.
