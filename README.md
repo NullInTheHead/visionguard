@@ -247,6 +247,27 @@ same `metrics.csv` (experiments `e2c-rot90`, `e2c-rot45`), scores to
 Every run also logs the efficiency measurements of protocol section 13: feature-extraction,
 nearest-neighbour and post-processing time per image, memory-bank size and peak memory.
 
+## Phase 3: deployable thresholds (RQ2)
+
+Every calibration rule assumes that held-back defect-free *training* images behave like
+defect-free *test* images. The first check of that assumption, from the E1 scores:
+
+```bash
+python scripts/threshold_analysis.py
+```
+
+**Result: they often do not.** On the development categories, 13.0% of defect-free test
+images score above the calibration maximum, against 4.6% expected if the two were
+interchangeable, and test goods score significantly higher in 4 of 10 products (leather:
+47% above the maximum). See `results/thresholds/exchangeability_wrn50.png`.
+
+Next, a diagnostic that separates the two possible causes, near-twin training images or
+a change in capture conditions between training and test (protocol section 11.1):
+
+```bash
+python scripts/calibration_diagnostic.py
+```
+
 ## Repository layout
 
 ```
@@ -262,7 +283,8 @@ src/visionguard/
   banks.py          cached coresets, the shared zero-shot bank, few-shot draws
   corruptions.py    acquisition-shift transforms (Phase 3)
 scripts/            setup_mvtec.sh, inspect_data.py, run_e1.py, run_anomalib_reference.py,
-                    choose_margin.py, apply_threshold.py, make_tables.py, run_e2.py, (run_e3.py)
+                    choose_margin.py, apply_threshold.py, make_tables.py, run_e2.py,
+                    threshold_analysis.py, calibration_diagnostic.py, (run_e3.py)
 results/            CSVs and figures (committed)
 tests/              unit tests on a synthetic MVTec tree
 app/                demo (Phase 5)

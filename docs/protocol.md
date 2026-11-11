@@ -1,8 +1,8 @@
 # VisionGuard evaluation protocol
 
-**Status: v1.5 (2026-11-11), frozen.** v1.0 settled decisions D1–D4 (section 10); v1.4
+**Status: v1.6 (2026-11-11), frozen.** v1.0 settled decisions D1–D4 (section 10); v1.4
 adds the research questions and the analysis plan for Phase 3 (sections 1, 11–14); v1.5
-adds post-hoc diagnostics (section 16). This file
+adds post-hoc diagnostics (section 16); v1.6 records the first RQ2 result (section 11.1). This file
 and `configs/split.yaml` were committed before any experiment touched a held-out category.
 Every later change goes in the change log with a reason, and no change may be motivated by
 held-out results.
@@ -264,6 +264,30 @@ development categories only, with leave-one-category-out estimates; its held-out
 are labelled *post-hoc*. A clean independent test needs data not yet looked at
 (decision D5).
 
+### 11.1 Exchangeability check (first result) and follow-up diagnostic
+
+**Result (E1 scores, WRN-50; `scripts/threshold_analysis.py`).** On the development
+categories, 13.0% of defect-free test images score above their category's calibration
+maximum, against 4.6% expected if calibration and test images were exchangeable. Test
+goods score significantly higher than calibration images (one-sided Mann-Whitney,
+p < 0.05) in 4 of 10 development categories: leather (47% above the maximum), zipper,
+pill, wood. Among held-out categories (post-hoc): carpet (39%) and screw. So the
+exchangeability assumption of split conformal fails for these products when the
+calibration set is drawn from the training images; a conformal threshold built that way
+would not deliver its guarantee there.
+
+**Follow-up diagnostic** (`scripts/calibration_diagnostic.py`, development categories).
+Two explanations, with different predictions:
+
+| Explanation | Blocked calibration split (last 10% by file number) | Nearest-image distance |
+|---|---|---|
+| Near-twins in the training set (a randomly held-back image keeps a near-identical neighbour in the bank) | Calibration scores rise towards the test level; the shift shrinks | Calibration images much closer to the bank than test images under the random split, not under the blocked split |
+| Session drift (test images captured under different conditions) | Little change | Test images farther from the bank than calibration images under both splits |
+
+Recorded before the diagnostic is run. Caveat: the blocked split assumes file numbers
+follow capture order; if not, it is another random split and only the distances carry
+evidence. A mix of both explanations is possible and is reported as such.
+
 ## 12. Backbone comparison (RQ4)
 
 Each backbone is reported on four dimensions, not one AUROC. Defect-size bins are fixed
@@ -379,3 +403,4 @@ Either outcome is reported.
 * v1.3 (2026-11-01) — Coreset implementation: computed on the CPU with squared distances from one matrix-vector product per step (about 10x faster; selection no longer depends on the GPU type). Floating-point differences break some near-ties differently, so a few late coreset picks change; E1 is rerun on all 15 categories with this code. The margin stays frozen at m = 0.13: it is not re-tuned, because a preview of the held-out threshold results (mean recall 0.80, carpet false-reject rate 14%) has been seen.
 * v1.4 (2026-11-11) — Research questions RQ1–RQ4; threshold calibration study with its success criterion, the precise conformal guarantee and the leakage restriction (section 11); backbone reporting on four dimensions with frozen defect-size bins (section 12); efficiency measurements logged in every run (section 13); related work (section 14); open decision D5. E2a coreset ratio fixed at 10%; E2b reports threshold-free metrics only. No setting of v1.3 changed.
 * v1.5 (2026-11-11) — Section 16: post-hoc diagnostics; 16.1 rotation-augmented few-shot banks (E2c), with design and predictions recorded before any run. No frozen setting changed.
+* v1.6 (2026-11-11) — Section 11.1: exchangeability check result (calibration and test defect-free images not exchangeable in 4 of 10 development categories) and the twins-vs-drift diagnostic with its predictions, recorded before it is run.

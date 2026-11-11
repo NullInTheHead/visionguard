@@ -281,6 +281,20 @@ class EmbeddedSet:
     def __len__(self) -> int:
         return len(self.ids)
 
+    def subset(self, indices: Sequence[int]) -> EmbeddedSet:
+        """The images at ``indices``, in that order (embeddings shared, not copied)."""
+        idx = list(indices)
+        share = len(idx) / max(1, len(self))
+        return EmbeddedSet(
+            ids=[self.ids[i] for i in idx],
+            labels=self.labels[idx],
+            defect_types=[self.defect_types[i] for i in idx],
+            masks=self.masks[idx],
+            embeddings=self.embeddings[idx],
+            grid=self.grid,
+            timing={k: v * share for k, v in self.timing.items()},
+        )
+
 
 class PatchCore:
     def __init__(
