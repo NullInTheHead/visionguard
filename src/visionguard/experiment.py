@@ -218,3 +218,86 @@ def example_panels(
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
     return out_path
+
+
+# ------------------------------------------------------------------ efficiency
+
+
+def reset_device_peak(device) -> None:
+    """Start a fresh peak-memory window (CUDA only; other devices have no peak counter)."""
+    import torch
+
+    if getattr(device, "type", str(device)) == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+
+
+def efficiency_columns(model, pred) -> dict:
+    """Protocol section 13: fit stages (s), scoring stages (ms per image), bank, memory."""
+    from .patchcore import device_memory_mb, peak_rss_mb
+
+    cols = {f"fit_{k}_s": round(v, 3) for k, v in model.fit_timing.items()}
+    cols.update({f"ms_{k}": round(1000 * v, 2) for k, v in pred.timing.items()})
+    cols["peak_rss_mb"] = round(peak_rss_mb(), 1)
+    cols.update({k: round(v, 1) for k, v in device_memory_mb(model.device).items()})
+    return cols
+
+
+# ------------------------------------------------------------------ E2 figure
+
+
+def recovery_figure(
+    e2: pd.DataFrame,
+    e1: pd.DataFrame | None,
+    out_path: str | Path,
+    metric: str = "image_auroc",
+    title: str = "",
+) -> Path:
+    """Few-shot recovery curve per category: k = 0 (E2a), 1-8 (E2b, mean ± sd over seeds)
+    and k = all (E1). The x axis is categorical, so the uneven steps are shown evenly."""
+    import matplotlib.pyplot as plt
+
+    names = {"image_auroc": "Image AUROC", "au_pro": "AU-PRO", "pixel_auroc": "Pixel AUROC"}
+    label = names.get(metric, metric)
+    cats = list(dict.fromkeys(e2.category))
+    ncols = min(3, len(cats))
+    nrows = int(np.ceil(len(cats) / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.6 * ncols, 2.9 * nrows), squeeze=False)
+    for ax in axes.ravel():
+        ax.set_visible(False)
+    for ax, cat in zip(axes.ravel(), cats, strict=False):
+        ax.set_visible(True)
+        d = e2[e2.category == cat]
+        ks = sorted(d[d.experiment == "e2b"].k.unique())
+        labels, means, sds = [], [], []
+        zero = d[d.experiment == "e2a"]
+        if len(zero):
+            labels.append("0")
+            means.append(zero[metric].mean())
+            sds.append(0.0)
+        for k in ks:
+            v = d[(d.experiment == "e2b") & (d.k == k)][metric]
+            labels.append(str(int(k)))
+            means.append(v.mean())
+            sds.append(v.std(ddof=1) if len(v) > 1 else 0.0)
+        x = np.arange(len(labels))
+        ax.errorbar(x, means, yerr=sds, marker="o", ms=4, capsize=3, lw=1.2, color="C0")
+        if e1 is not None:
+            full = e1[(e1.category == cat) & (e1.calibration_fraction == 0.1)][metric]
+            if len(full):
+                ax.axhline(full.iloc[0], color="0.4", ls="--", lw=1)
+                ax.text(x[-1], full.iloc[0], " all", va="center", fontsize=8, color="0.3")
+        ax.set_xticks(x, labels)
+        ax.set_xlabel("reference images of the new product (k)", fontsize=8)
+        ax.set_ylabel(label, fontsize=8)
+        ax.set_title(cat, fontsize=9)
+        ax.set_ylim(min(0.5, min(means) - 0.05), 1.01)
+        ax.tick_params(labelsize=8)
+        ax.grid(alpha=0.3)
+    if title:
+        fig.suptitle(title, fontsize=10)
+    fig.tight_layout()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+    return out_path

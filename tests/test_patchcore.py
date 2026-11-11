@@ -230,3 +230,39 @@ def test_patchcore_full_bank_and_guards(structured_mvtec):
     model.fit(train[:2], coreset_ratio=None)  # few-shot style: keep every patch
     assert model.memory_bank.shape[0] == 2 * 49
     assert model.memory_bank_mb == pytest.approx(2 * 49 * 1024 * 4 / 2**20)
+
+
+def test_cached_embeddings_score_exactly_like_predict(structured_mvtec):
+    samples = index_category(structured_mvtec, "tile")
+    train, test = by_split(samples, "train"), by_split(samples, "test")
+    model = PatchCore(FeatureExtractor("toy"), coreset_ratio=0.25, batch_size=4)
+    model.fit(train)
+    direct = model.predict(test)
+    cached = model.embed_for_scoring(test)
+    assert cached.embeddings.shape == (12, 49, 1024) and cached.grid == (7, 7)
+    again = model.score_embedded(cached)
+    assert again.ids == direct.ids
+    np.testing.assert_allclose(again.scores, direct.scores, rtol=1e-5)
+    np.testing.assert_allclose(again.maps, direct.maps, rtol=1e-5, atol=1e-6)
+    # The same embeddings against a different bank: no backbone run needed.
+    model.fit(train[:2], coreset_ratio=None)
+    other = model.score_embedded(cached)
+    assert not np.allclose(other.scores, direct.scores)
+
+
+def test_timing_and_memory_are_recorded(structured_mvtec):
+    from visionguard.patchcore import device_memory_mb, peak_rss_mb
+
+    samples = index_category(structured_mvtec, "tile")
+    train, test = by_split(samples, "train"), by_split(samples, "test")
+    model = PatchCore(FeatureExtractor("toy"), coreset_ratio=0.25, batch_size=4)
+    model.fit(train)
+    assert set(model.fit_timing) == {"load", "features", "coreset"}
+    assert all(v >= 0 for v in model.fit_timing.values())
+    pred = model.predict(test)
+    assert set(pred.timing) == {"load", "features", "nn_search", "postprocess"}
+    assert sum(pred.timing.values()) <= pred.seconds_per_image * 1.05 + 1e-3
+    cached = model.score_embedded(model.embed_for_scoring(test))
+    assert set(cached.timing) == set(pred.timing)
+    assert peak_rss_mb() > 10
+    assert device_memory_mb(torch.device("cpu")) == {}

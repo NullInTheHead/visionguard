@@ -195,6 +195,60 @@ def gaussian_blur(maps: torch.Tensor, sigma: float) -> torch.Tensor:
     return x[:, 0]
 
 
+# ------------------------------------------------------------------ measurement
+
+
+def synchronize(device: torch.device) -> None:
+    """Wait for queued GPU work, so a timer measures the work and not just its launch."""
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+    elif device.type == "mps":
+        torch.mps.synchronize()
+
+
+def peak_rss_mb() -> float:
+    """Peak resident memory of this process so far, in MB (never decreases)."""
+    import resource
+    import sys
+
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak / 2**20 if sys.platform == "darwin" else peak / 2**10  # bytes vs KiB
+
+
+def device_memory_mb(device: torch.device) -> dict[str, float]:
+    """Device memory: peak for CUDA; MPS only reports what is allocated right now."""
+    if device.type == "cuda":
+        return {"device_peak_mb": torch.cuda.max_memory_allocated(device) / 2**20}
+    if device.type == "mps":
+        return {"device_current_mb": torch.mps.current_allocated_memory() / 2**20}
+    return {}
+
+
+class StageTimer:
+    """Accumulates wall time per named stage, synchronising the device around each one."""
+
+    def __init__(self, device: torch.device) -> None:
+        self.device = device
+        self.seconds: dict[str, float] = {}
+
+    def add(self, stage: str, seconds: float) -> None:
+        self.seconds[stage] = self.seconds.get(stage, 0.0) + seconds
+
+    def stage(self, name: str):
+        timer = self
+
+        class _Stage:
+            def __enter__(self):
+                synchronize(timer.device)
+                self.start = time.perf_counter()
+
+            def __exit__(self, *exc):
+                synchronize(timer.device)
+                timer.add(name, time.perf_counter() - self.start)
+
+        return _Stage()
+
+
 # ---------------------------------------------------------------------- detector
 
 
@@ -208,6 +262,24 @@ class Predictions:
     maps: np.ndarray  # (N, S, S) float32 anomaly maps
     masks: np.ndarray  # (N, S, S) bool ground truth
     seconds_per_image: float = field(default=float("nan"))
+    timing: dict[str, float] = field(default_factory=dict)  # seconds per image, per stage
+
+
+@dataclass
+class EmbeddedSet:
+    """Patch embeddings of a set of images, kept on the CPU so they can be scored against
+    many memory banks (E2b) without running the backbone again."""
+
+    ids: list[str]
+    labels: np.ndarray
+    defect_types: list[str]
+    masks: np.ndarray
+    embeddings: torch.Tensor  # (N, P, D) float32, CPU
+    grid: tuple[int, int]
+    timing: dict[str, float] = field(default_factory=dict)  # total seconds per stage
+
+    def __len__(self) -> int:
+        return len(self.ids)
 
 
 class PatchCore:
@@ -238,6 +310,7 @@ class PatchCore:
         self.seed = seed
         self.memory_bank: torch.Tensor | None = None
         self.fit_seconds = float("nan")
+        self.fit_timing: dict[str, float] = {}
 
     # ----------------------------------------------------------------- internals
 
@@ -253,11 +326,25 @@ class PatchCore:
         feats = self.extractor(images.to(self.device, non_blocking=True))
         return embed_patches(feats, self.pretrain_dim, self.target_dim)
 
+    def _batches(self, samples: Sequence[Sample], timer: StageTimer):
+        """Yield (batch, embeddings on device, grid), timing loading and feature extraction."""
+        it = iter(self._loader(samples))
+        while True:
+            start = time.perf_counter()
+            try:
+                batch = next(it)
+            except StopIteration:
+                return
+            timer.add("load", time.perf_counter() - start)
+            with timer.stage("features"):
+                emb, grid = self._embed(batch["image"])
+            yield batch, emb, grid
+
     def embed_samples(self, samples: Sequence[Sample]) -> torch.Tensor:
         """All patch vectors of ``samples`` as (N * P, D), kept on the CPU."""
-        out = [
-            self._embed(batch["image"])[0].flatten(0, 1).cpu() for batch in self._loader(samples)
-        ]
+        timer = StageTimer(self.device)
+        out = [emb.flatten(0, 1).cpu() for _, emb, _ in self._batches(samples, timer)]
+        self._last_embed_timing = timer.seconds
         return torch.cat(out)
 
     def subsample(self, patches: torch.Tensor, ratio: float | None) -> torch.Tensor:
@@ -268,6 +355,30 @@ class PatchCore:
         idx = greedy_coreset(patches, n, self.proj_dim, self.seed)
         return patches[idx]
 
+    def _score_batch(self, emb: torch.Tensor, grid: tuple[int, int], timer: StageTimer):
+        """Image scores, plain max scores and smoothed maps for one batch of embeddings."""
+        b, p, d = emb.shape
+        size = self.extractor.preprocess.output_size
+        with timer.stage("nn_search"):
+            dist, idx = nearest_neighbours(emb.reshape(b * p, d), self.memory_bank, k=1)
+            patch_scores = dist[:, 0].reshape(b, p)
+            img = reweighted_image_scores(
+                patch_scores, idx[:, 0].reshape(b, p), emb, self.memory_bank, self.num_neighbors
+            )
+        with timer.stage("postprocess"):
+            amap = F.interpolate(
+                patch_scores.reshape(b, 1, *grid),
+                size=(size, size),
+                mode="bilinear",
+                align_corners=False,
+            )[:, 0]
+            amap = gaussian_blur(amap, self.sigma).cpu().float()
+        return img.cpu(), patch_scores.amax(dim=1).cpu(), amap
+
+    @staticmethod
+    def _per_image(seconds: dict[str, float], n: int) -> dict[str, float]:
+        return {k: v / max(1, n) for k, v in seconds.items()}
+
     # ----------------------------------------------------------------- public API
 
     def fit(
@@ -276,15 +387,21 @@ class PatchCore:
         """Build the memory bank from reference images (defect-free training images only).
 
         ``coreset_ratio="default"`` uses the ratio given at construction; ``None`` keeps
-        every patch (used for few-shot banks).
+        every patch (used for few-shot banks). ``fit_timing`` records load, feature and
+        coreset seconds separately.
         """
         if any(s.split != "train" or s.label != 0 for s in reference):
             raise ValueError("Memory bank images must come from train/good only.")
         ratio = self.coreset_ratio if coreset_ratio == "default" else coreset_ratio
         start = time.perf_counter()
-        bank = self.subsample(self.embed_samples(reference), ratio)
+        patches = self.embed_samples(reference)
+        timing = dict(self._last_embed_timing)
+        t0 = time.perf_counter()
+        bank = self.subsample(patches, ratio)
+        timing["coreset"] = time.perf_counter() - t0
         self.set_memory_bank(bank)
         self.fit_seconds = time.perf_counter() - start
+        self.fit_timing = timing
         return self
 
     def set_memory_bank(self, bank: torch.Tensor) -> None:
@@ -299,38 +416,22 @@ class PatchCore:
 
     @torch.no_grad()
     def predict(self, samples: Sequence[Sample]) -> Predictions:
+        """Score images batch by batch (low memory). ``timing`` = seconds per image per stage."""
         if self.memory_bank is None:
             raise RuntimeError("Call fit() first.")
-        size = self.extractor.preprocess.output_size
+        timer = StageTimer(self.device)
         ids, labels, types, scores, scores_max, maps, masks = [], [], [], [], [], [], []
-        n_images, start = 0, time.perf_counter()
-        for batch in self._loader(samples):
-            emb, grid = self._embed(batch["image"])
-            b, p, d = emb.shape
-            dist, idx = nearest_neighbours(emb.reshape(b * p, d), self.memory_bank, k=1)
-            patch_scores = dist[:, 0].reshape(b, p)
-            nn_index = idx[:, 0].reshape(b, p)
-            img = reweighted_image_scores(
-                patch_scores, nn_index, emb, self.memory_bank, self.num_neighbors
-            )
-            amap = F.interpolate(
-                patch_scores.reshape(b, 1, *grid),
-                size=(size, size),
-                mode="bilinear",
-                align_corners=False,
-            )[:, 0]
-            amap = gaussian_blur(amap, self.sigma)
-            if self.device.type == "cuda":
-                torch.cuda.synchronize()
-            scores.append(img.cpu())
-            scores_max.append(patch_scores.amax(dim=1).cpu())
-            maps.append(amap.cpu().float())
+        start = time.perf_counter()
+        for batch, emb, grid in self._batches(samples, timer):
+            img, mx, amap = self._score_batch(emb, grid, timer)
+            scores.append(img)
+            scores_max.append(mx)
+            maps.append(amap)
             masks.append(torch.as_tensor(batch["mask"]))
             labels.append(torch.as_tensor(batch["label"]))
             ids.extend(batch["id"])
             types.extend(batch["defect_type"])
-            n_images += b
-        elapsed = time.perf_counter() - start
+        n = len(ids)
         return Predictions(
             ids=ids,
             labels=torch.cat(labels).numpy().astype(int),
@@ -339,5 +440,58 @@ class PatchCore:
             scores_max=torch.cat(scores_max).numpy(),
             maps=torch.cat(maps).numpy(),
             masks=torch.cat(masks).numpy().astype(bool),
-            seconds_per_image=elapsed / max(1, n_images),
+            seconds_per_image=(time.perf_counter() - start) / max(1, n),
+            timing=self._per_image(timer.seconds, n),
+        )
+
+    @torch.no_grad()
+    def embed_for_scoring(self, samples: Sequence[Sample]) -> EmbeddedSet:
+        """Run the backbone once and keep every image's patch embeddings on the CPU."""
+        timer = StageTimer(self.device)
+        ids, labels, types, masks, embs = [], [], [], [], []
+        grid = (0, 0)
+        for batch, emb, batch_grid in self._batches(samples, timer):
+            grid = batch_grid
+            embs.append(emb.cpu())
+            masks.append(torch.as_tensor(batch["mask"]))
+            labels.append(torch.as_tensor(batch["label"]))
+            ids.extend(batch["id"])
+            types.extend(batch["defect_type"])
+        return EmbeddedSet(
+            ids=ids,
+            labels=torch.cat(labels).numpy().astype(int),
+            defect_types=types,
+            masks=torch.cat(masks).numpy().astype(bool),
+            embeddings=torch.cat(embs),
+            grid=grid,
+            timing=timer.seconds,
+        )
+
+    @torch.no_grad()
+    def score_embedded(self, data: EmbeddedSet) -> Predictions:
+        """Score cached embeddings against the current memory bank. ``timing`` per image
+        includes the cached load and feature time, so it is comparable with ``predict``."""
+        if self.memory_bank is None:
+            raise RuntimeError("Call fit() or set_memory_bank() first.")
+        timer = StageTimer(self.device)
+        scores, scores_max, maps = [], [], []
+        start = time.perf_counter()
+        for i in range(0, len(data), self.batch_size):
+            emb = data.embeddings[i : i + self.batch_size].to(self.device)
+            img, mx, amap = self._score_batch(emb, data.grid, timer)
+            scores.append(img)
+            scores_max.append(mx)
+            maps.append(amap)
+        n = len(data)
+        seconds = {**data.timing, **timer.seconds}
+        return Predictions(
+            ids=list(data.ids),
+            labels=data.labels,
+            defect_types=list(data.defect_types),
+            scores=torch.cat(scores).numpy(),
+            scores_max=torch.cat(scores_max).numpy(),
+            maps=torch.cat(maps).numpy(),
+            masks=data.masks,
+            seconds_per_image=(time.perf_counter() - start + sum(data.timing.values())) / max(1, n),
+            timing=self._per_image(seconds, n),
         )

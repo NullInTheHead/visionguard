@@ -30,9 +30,11 @@ import pandas as pd  # noqa: E402
 from visionguard.config import load_config, load_split, resolve_categories  # noqa: E402
 from visionguard.data import by_split, calibration_split, category_type, index_category  # noqa: E402
 from visionguard.experiment import (  # noqa: E402
+    efficiency_columns,
     evaluate,
     example_panels,
     heatmap_grid,
+    reset_device_peak,
     run_metadata,
     scores_frame,
     upsert_rows,
@@ -110,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for category in categories:
         torch.manual_seed(0)
+        reset_device_peak(device)
         samples = index_category(root, category)
         reference, calibration = calibration_split(
             by_split(samples, "train"), cal_fraction, cfg["calibration"]["seed"]
@@ -147,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
             "calibration_max_score": round(cal_max, 5),
             "fit_seconds": round(model.fit_seconds, 2),
             "seconds_per_image": round(pred.seconds_per_image, 4),
+            **efficiency_columns(model, pred),
             **meta,
             "config": args.config,
         }

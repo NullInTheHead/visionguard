@@ -1,0 +1,19 @@
+# E2: new product (protocol section 5).
+#   E2a zero-shot: shared bank from the development categories' coresets, nothing from the
+#                  target product.
+#   E2b few-shot:  k reference images of the target (k from base.yaml), full patch bank,
+#                  5 seeds, nested draws.
+extends: base.yaml
+experiment: e2
+backbone: wrn50
+categories: held_out     # settings are frozen, so held-out categories are the targets
+output: results/e2
+
+patchcore:
+  coreset_ratio: 0.1     # per source category in the E2a bank (the E1 setting)
+  num_neighbors: 9
+  sigma: 4.0
+  batch_size: 16
+  num_workers: 0
+
+cache_dir: cache/banks   # E1-style coresets are cached here (git-ignored)

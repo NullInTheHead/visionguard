@@ -6,8 +6,8 @@
 pretrained-feature detector keep working, and how few reference images does it need to
 recover on a product it has never seen?
 
-> Status: **M1 reached** (v0.1): working baseline, E1 done on all 15 categories. Next:
-> zero-shot and few-shot transfer to unseen products (E2), then the other backbones.
+> Status: **M1 reached** (v0.1); Phase 3 under way. Protocol v1.4 sets the research
+> questions; E2 (new products, zero-shot and few-shot) is next, then the other backbones.
 
 ## Results so far: E1 (WideResNet-50, in-category detection)
 
@@ -211,6 +211,28 @@ now frozen at 0.13 in `configs/base.yaml`) and reports a leave-one-category-out 
 `python scripts/apply_threshold.py` applies the frozen m to the held-out categories.
 `python scripts/make_tables.py` regenerates the README results tables from the CSVs.
 
+## Phase 3: new products (E2)
+
+Zero-shot and few-shot detection on the five held-out products, with every setting frozen:
+
+```bash
+python scripts/run_e2.py
+```
+
+* **E2a, zero-shot (k = 0):** one memory bank made of the 10 development products'
+  coresets, nothing from the target. The coresets are cached in `cache/banks/`, so the
+  first run builds them and later runs reuse them.
+* **E2b, few-shot (k = 1, 2, 4, 8):** every patch of k defect-free images of the target,
+  5 seeds each, nested draws.
+
+Each test set is embedded once and scored against all 21 banks. Results land in
+`results/e2/`: `metrics.csv` (one row per bank, with timings and memory), per-image scores
+in `scores/`, and recovery curves `recovery_wrn50_image_auroc.png` and
+`recovery_wrn50_au_pro.png`, with the E1 result as the k = all reference line.
+
+Every run also logs the efficiency measurements of protocol section 13: feature-extraction,
+nearest-neighbour and post-processing time per image, memory-bank size and peak memory.
+
 ## Repository layout
 
 ```
@@ -222,10 +244,11 @@ src/visionguard/
   metrics.py        image/pixel AUROC, AU-PRO, FPR at 95% recall, fixed-threshold metrics
   features.py       frozen backbones (WRN-50, supervised / DINOv2 / CLIP ViT-B) behind one interface
   patchcore.py      patch embedding, greedy coreset, NN scoring, reweighting, smoothed maps
-  experiment.py     metrics rows, CSV logging with run metadata, heatmap grids
+  experiment.py     metrics rows, CSV logging with run metadata, heatmap grids, E2 curves
+  banks.py          cached coresets, the shared zero-shot bank, few-shot draws
   corruptions.py    acquisition-shift transforms (Phase 3)
 scripts/            setup_mvtec.sh, inspect_data.py, run_e1.py, run_anomalib_reference.py,
-                    choose_margin.py, apply_threshold.py, make_tables.py, (run_e2.py, run_e3.py)
+                    choose_margin.py, apply_threshold.py, make_tables.py, run_e2.py, (run_e3.py)
 results/            CSVs and figures (committed)
 tests/              unit tests on a synthetic MVTec tree
 app/                demo (Phase 5)
