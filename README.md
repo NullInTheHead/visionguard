@@ -268,6 +268,38 @@ a change in capture conditions between training and test (protocol section 11.1)
 python scripts/calibration_diagnostic.py
 ```
 
+**Result: drift, not twins.** Holding back a contiguous block of training images instead
+of a random 10% does not close the gap, and test goods sit 3-4x farther from their
+nearest training image than calibration images do in leather and wood
+(`results/thresholds/calibration_diagnostic_wrn50.csv`).
+
+So the fix has to come from the deployment side: *calibrate where you deploy*. Half of
+each product's defect-free test images serve as a deployment calibration set, the other
+half are scored, over 1,000 random splits, and four rules are compared (protocol section
+11.2, predictions registered before the run):
+
+```bash
+python scripts/deployment_calibration.py
+```
+
+| at alpha = 10% | exceeds alpha (dev / held-out) |
+|---|---|
+| training conformal, mean over splits | 6 of 9 / 3 of 5 |
+| training conformal, beyond chance (exact beta-binomial test, p < 0.05) | 2 of 9 (leather, wood) / 2 of 5 (carpet, screw) |
+| deployment conformal | **0 of 9 / 0 of 5** |
+
+* Deployment conformal lands on its exact expected rate in every product, including the
+  held-out ones, so the false-reject rate is predictable without seeing the product's
+  test distribution in advance, only a small sample of its good parts.
+* The guarantee is an average over calibration sets: in about a quarter of single draws
+  the realised rate is above 10%, so a single deployment should report it with its
+  spread, not as a bound.
+* The price is recall where drift was large: pill 0.93 to 0.84, screw 0.99 to 0.87,
+  carpet 1.00 to 0.93.
+* The max + margin rules almost never reject a good part, and pay for it in recall.
+
+See `results/thresholds/deployment_calibration_wrn50.png`.
+
 ## Repository layout
 
 ```
@@ -284,7 +316,8 @@ src/visionguard/
   corruptions.py    acquisition-shift transforms (Phase 3)
 scripts/            setup_mvtec.sh, inspect_data.py, run_e1.py, run_anomalib_reference.py,
                     choose_margin.py, apply_threshold.py, make_tables.py, run_e2.py,
-                    threshold_analysis.py, calibration_diagnostic.py, (run_e3.py)
+                    threshold_analysis.py, calibration_diagnostic.py,
+                    deployment_calibration.py, (run_e3.py)
 results/            CSVs and figures (committed)
 tests/              unit tests on a synthetic MVTec tree
 app/                demo (Phase 5)
