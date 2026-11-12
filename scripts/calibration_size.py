@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
                 row = {
                     "backbone": backbone,
                     "category": category,
-                    "role": "dev" if category in split.dev else "held_out (post-hoc)",
+                    "role": split.role(category),
                     "calibration_fraction": fraction,
                     "seed": seed,
                     "n_reference": len(ref),
@@ -187,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _print_summary(df: pd.DataFrame, alphas: list[float]) -> None:
-    for role in ["dev", "held_out (post-hoc)"]:
+    for role in dict.fromkeys(df.role):
         d = df[df.role == role]
         if d.empty:
             continue

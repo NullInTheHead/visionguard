@@ -329,6 +329,21 @@ false rejects at a 1% target, where split conformal gives 0.7%; on deployment im
 lands at 3-4x a 1% target. Small targets need more calibration images, not
 extrapolation (protocol section 11.4).
 
+## Clean test on VisA (in progress)
+
+Every RQ2 conclusion above was reached on MVTec AD. VisA (12 products, never looked at) is
+the clean test: the same frozen settings, the same scripts, and predictions recorded in
+`docs/protocol.md` (section 11.5) before any VisA image was loaded.
+
+```bash
+bash scripts/setup_visa.sh                       # download (1.8 GB), MVTec layout in data/visa
+python scripts/run_e1.py --config configs/e1_visa.yaml --allow-held-out
+python scripts/threshold_analysis.py --split configs/split_visa.yaml \
+    --scores results/visa/e1/scores --out results/visa/thresholds
+python scripts/deployment_calibration.py --config configs/e1_visa.yaml \
+    --scores results/visa/e1/scores --out results/visa/thresholds
+```
+
 ## Repository layout
 
 ```
@@ -346,7 +361,8 @@ src/visionguard/
 scripts/            setup_mvtec.sh, inspect_data.py, run_e1.py, run_anomalib_reference.py,
                     choose_margin.py, apply_threshold.py, make_tables.py, run_e2.py,
                     threshold_analysis.py, calibration_diagnostic.py,
-                    deployment_calibration.py, calibration_size.py, evt_analysis.py, (run_e3.py)
+                    deployment_calibration.py, calibration_size.py, evt_analysis.py,
+                    setup_visa.sh, prepare_visa.py, (run_e3.py)
 results/            CSVs and figures (committed)
 tests/              unit tests on a synthetic MVTec tree
 app/                demo (Phase 5)
@@ -363,5 +379,13 @@ The dataset is not included in this repository. If you use it, cite:
 * P. Bergmann, K. Batzner, M. Fauser, D. Sattlegger, C. Steger. *The MVTec Anomaly
   Detection Dataset: A Comprehensive Real-World Dataset for Unsupervised Anomaly
   Detection.* IJCV 2021.
+
+VisA is © Amazon.com, Inc., licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); not included here either.
+`configs/visa_split_1cls.csv` is the authors' official split, copied unchanged from
+[amazon-science/spot-diff](https://github.com/amazon-science/spot-diff). Cite:
+
+* Y. Zou, J. Jeong, L. Pemula, D. Zhang, O. Dabeer. *SPot-the-Difference Self-Supervised
+  Pre-training for Anomaly Detection and Segmentation.* ECCV 2022.
 
 The code in this repository is MIT-licensed (see `LICENSE`).

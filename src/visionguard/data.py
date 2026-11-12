@@ -36,6 +36,16 @@ OBJECTS: tuple[str, ...] = (
     "zipper",
 )
 CATEGORIES: tuple[str, ...] = tuple(sorted(TEXTURES + OBJECTS))
+
+# VisA (Zou et al., ECCV 2022), the untouched clean test set (protocol decision D5), after
+# scripts/prepare_visa.py has put it in the MVTec folder layout. Types as in the VisA paper.
+VISA_TYPES: dict[str, str] = {
+    **{c: "complex_structure" for c in ("pcb1", "pcb2", "pcb3", "pcb4")},
+    **{c: "multiple_instances" for c in ("candle", "capsules", "macaroni1", "macaroni2")},
+    **{c: "single_instance" for c in ("cashew", "chewinggum", "fryum", "pipe_fryum")},
+}
+VISA_CATEGORIES: tuple[str, ...] = tuple(sorted(VISA_TYPES))
+DATASET_CATEGORIES: dict[str, tuple[str, ...]] = {"mvtec": CATEGORIES, "visa": VISA_CATEGORIES}
 GOOD = "good"
 IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".bmp"})
 
@@ -46,12 +56,14 @@ _STREAM_KSHOT = 2
 
 
 def category_type(category: str) -> str:
-    """Return ``"texture"`` or ``"object"`` for an MVTec AD category."""
+    """``"texture"`` or ``"object"`` for an MVTec AD category; the VisA type for VisA."""
     if category in TEXTURES:
         return "texture"
     if category in OBJECTS:
         return "object"
-    raise ValueError(f"Unknown MVTec AD category: {category!r}")
+    if category in VISA_TYPES:
+        return VISA_TYPES[category]
+    raise ValueError(f"Unknown category: {category!r}")
 
 
 @dataclass(frozen=True, order=True)

@@ -1,0 +1,7 @@
+# E1 on VisA with every setting frozen from MVTec AD (protocol section 11.5).
+extends: e1.yaml
+categories: held_out
+output: results/visa/e1
+data:
+  root: data/visa
+  split: configs/split_visa.yaml

@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from .data import CATEGORIES, category_type
+from .data import DATASET_CATEGORIES, category_type
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
@@ -45,21 +45,36 @@ class CategorySplit:
     dev: tuple[str, ...]
     held_out: tuple[str, ...]
     selection: str = "unspecified"
+    dataset: str = "mvtec"
+
+    @property
+    def categories(self) -> tuple[str, ...]:
+        return DATASET_CATEGORIES[self.dataset]
+
+    def role(self, category: str) -> str:
+        """How a category's results are labelled (protocol sections 8 and 11)."""
+        if category in self.dev:
+            return "dev"
+        return "held_out (post-hoc)" if self.dataset == "mvtec" else "clean test"
 
     def validate(self) -> CategorySplit:
+        if self.dataset not in DATASET_CATEGORIES:
+            raise ValueError(f"Unknown dataset {self.dataset!r}")
         overlap = set(self.dev) & set(self.held_out)
         if overlap:
             raise ValueError(f"Categories in both dev and held-out: {sorted(overlap)}")
         listed = set(self.dev) | set(self.held_out)
-        if listed != set(CATEGORIES):
-            missing = sorted(set(CATEGORIES) - listed)
-            unknown = sorted(listed - set(CATEGORIES))
+        if listed != set(self.categories):
+            missing = sorted(set(self.categories) - listed)
+            unknown = sorted(listed - set(self.categories))
             raise ValueError(
-                f"Split must cover all 15 categories; missing={missing}, unknown={unknown}"
+                f"Split must cover all {len(self.categories)} {self.dataset} categories; "
+                f"missing={missing}, unknown={unknown}"
             )
-        held_types = {category_type(c) for c in self.held_out}
-        if held_types != {"texture", "object"}:
-            raise ValueError("Held-out set must contain at least one texture and one object.")
+        if self.dataset == "mvtec":
+            held_types = {category_type(c) for c in self.held_out}
+            if held_types != {"texture", "object"}:
+                raise ValueError("Held-out set must contain at least one texture and one object.")
         return self
 
 
@@ -96,7 +111,7 @@ def resolve_categories(spec: str | list[str], split: CategorySplit) -> list[str]
         if spec == "all":
             return sorted(split.dev + split.held_out)
         spec = [spec]
-    unknown = [c for c in spec if c not in CATEGORIES]
+    unknown = [c for c in spec if c not in split.categories]
     if unknown:
         raise ValueError(f"Unknown categories: {unknown}")
     return list(spec)
@@ -108,4 +123,5 @@ def load_split(path: str | Path = "configs/split.yaml") -> CategorySplit:
         dev=_flatten(cfg["dev"], "dev"),
         held_out=_flatten(cfg["held_out"], "held_out"),
         selection=str(cfg.get("selection", "unspecified")),
+        dataset=str(cfg.get("dataset", "mvtec")),
     ).validate()

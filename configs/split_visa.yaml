@@ -1,0 +1,7 @@
+# VisA: the clean test set (protocol decision D5). Every category is a test category; no
+# setting may be chosen on it. Results are labelled "clean test".
+version: 1
+dataset: visa
+selection: all twelve categories
+dev: []
+held_out: [candle, capsules, cashew, chewinggum, fryum, macaroni1, macaroni2, pcb1, pcb2, pcb3, pcb4, pipe_fryum]

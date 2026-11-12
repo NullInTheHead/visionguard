@@ -248,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         train_cal = s[s.split == "calibration"].score.to_numpy()
         if len(goods) < 4 or len(train_cal) == 0:
             continue
-        role = "dev" if category in split.dev else "held_out (post-hoc)"
+        role = split.role(category)
         for r in simulate(goods, defects, train_cal, args.alphas, margin, args.repeats,
                           args.seed):  # fmt: skip
             rows.append({"backbone": args.backbone, "category": category, "role": role,
@@ -276,7 +276,7 @@ def _print_summary(df: pd.DataFrame, alphas: list[float]) -> None:
         for c in cols:
             both[c] = both[c] + rec[c].map(lambda v: f" ({v:.2f})")
         print(both.to_string())
-        for role in ["dev", "held_out (post-hoc)"]:
+        for role in dict.fromkeys(d.role):
             r = d[d.role == role]
             parts = []
             for rule in cols:
@@ -318,7 +318,7 @@ def _figure(df: pd.DataFrame, path: Path, backbone: str, alpha: float) -> None:
     ax.grid(axis="x", alpha=0.3)
     ax.legend(fontsize=7, loc="lower right")
     ax.set_title(f"Calibrate where you deploy ({backbone}, alpha = {alpha:.0%}); "
-                 "* = held-out, post-hoc", fontsize=9)  # fmt: skip
+                 "* = held-out (post-hoc) or clean test", fontsize=9)  # fmt: skip
     fig.tight_layout()
     fig.savefig(path, dpi=120)
     plt.close(fig)

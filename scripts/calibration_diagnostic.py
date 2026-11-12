@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "backbone": backbone,
                     "category": category,
-                    "role": "dev" if category in split.dev else "held_out (post-hoc)",
+                    "role": split.role(category),
                     "split": name,
                     "n_calibration": len(cal),
                     "exceed_observed": round(float((good_scores > cal_scores.max()).mean()), 4),

@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
             defects = test[test.label == 1].score.to_numpy()
             for r in rows_for(cal, goods, defects, args.alphas, TAILS):
                 rows.append({"backbone": args.backbone, "category": category,
-                             "role": "dev" if category in split.dev else "held_out (post-hoc)",
+                             "role": split.role(category),
                              "calibration_fraction": fraction, "seed": seed,
                              "n_calibration": len(cal), **r})  # fmt: skip
     if not rows:
@@ -77,15 +77,16 @@ def main(argv: list[str] | None = None) -> int:
     df.round(5).to_csv(out / f"evt_training_{args.backbone}.csv", index=False)
 
     for alpha in args.alphas:
-        d = df[(df.alpha == alpha) & (df.role == "dev")]
-        print(f"\nalpha = {alpha:.0%}, development categories: mean false-reject rate "
+        role = "dev" if (df.role == "dev").any() else df.role.iloc[0]
+        d = df[(df.alpha == alpha) & (df.role == role)]
+        print(f"\nalpha = {alpha:.0%}, {role} categories: mean false-reject rate "
               "(available cells), by calibration fraction")  # fmt: skip
         t = d.groupby(["rule", "calibration_fraction"]).agg(
             available=("available", "sum"), mean_fpr=("fpr", "mean")
         )
         print(t.unstack().round(3).to_string())
     # Prediction 1: EVT (tail 0.3) vs conformal on the same calibration images.
-    d = df[(df.alpha == 0.10) & (df.role == "dev")]
+    d = df[(df.alpha == 0.10) & (df.role == role)]
     w = d.pivot_table(index=["category", "calibration_fraction", "seed"], columns="rule",
                       values="fpr")  # fmt: skip
     if {"conformal", "evt tail 0.3"} <= set(w.columns):

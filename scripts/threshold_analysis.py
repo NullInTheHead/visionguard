@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         good = s[(s.split == "test") & (s.label == 0)].score.to_numpy()
         if len(cal) == 0 or len(good) == 0:
             continue
-        role = "dev" if category in split.dev else "held_out (post-hoc)"
+        role = split.role(category)
         rows.append({"backbone": args.backbone, "category": category, "role": role,
                      **exchangeability_row(cal, good)})  # fmt: skip
         dists[category] = (cal, good, role)
@@ -84,15 +84,16 @@ def main(argv: list[str] | None = None) -> int:
     cols = ["category", "role", "n_calibration", "exceed_observed", "exceed_expected",
             "median_shift_pct", "mw_p_test_higher"]  # fmt: skip
     print(df[cols].round(3).to_string(index=False))
-    dev = df[df.role == "dev"]
-    pooled_obs = (dev.exceed_observed * dev.n_test_good).sum() / dev.n_test_good.sum()
-    pooled_exp = (dev.exceed_expected * dev.n_test_good).sum() / dev.n_test_good.sum()
-    print(
-        f"\nDevelopment categories: {pooled_obs:.1%} of defect-free test images score above "
-        f"the calibration maximum (expected {pooled_exp:.1%} if exchangeable); "
-        f"test goods score significantly higher in {int(dev.shift_significant.sum())} of "
-        f"{len(dev)} (one-sided Mann-Whitney, p < {args.alpha})."
-    )
+    for role in dict.fromkeys(df.role):
+        r = df[df.role == role]
+        pooled_obs = (r.exceed_observed * r.n_test_good).sum() / r.n_test_good.sum()
+        pooled_exp = (r.exceed_expected * r.n_test_good).sum() / r.n_test_good.sum()
+        print(
+            f"\n{role}: {pooled_obs:.1%} of defect-free test images score above the "
+            f"calibration maximum (expected {pooled_exp:.1%} if exchangeable); test goods "
+            f"score significantly higher in {int(r.shift_significant.sum())} of {len(r)} "
+            f"(one-sided Mann-Whitney, p < {args.alpha})."
+        )
     return 0
 
 
@@ -115,7 +116,7 @@ def _figure(dists: dict, path: Path, backbone: str) -> None:
             ax.step(x, np.arange(1, len(x) + 1) / len(x), where="post", color=color, lw=1.3,
                     label=name)  # fmt: skip
         ax.axvline(cal.max(), color="C0", ls=":", lw=1)
-        ax.set_title(f"{cat}" + ("" if role == "dev" else " (held-out)"), fontsize=9)
+        ax.set_title(f"{cat}" + ("" if role == "dev" else f" ({role})"), fontsize=9)
         ax.tick_params(labelsize=7)
         ax.grid(alpha=0.3)
     axes.ravel()[0].legend(fontsize=7, loc="lower right")
