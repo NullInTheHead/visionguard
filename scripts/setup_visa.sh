@@ -12,9 +12,18 @@ RAW="$DEST/VisA"
 
 mkdir -p "$DEST" "$RAW"
 if [ ! -f "$RAW/pcb4/image_anno.csv" ] && [ ! -f "$RAW/VisA/pcb4/image_anno.csv" ]; then
-  if [ ! -f "$ARCHIVE" ]; then
+  if [ ! -f "$ARCHIVE.done" ]; then
+    # Resumes a partial download; retries if the connection drops.
     echo "Downloading $URL ..."
-    curl -L --fail -C - -o "$ARCHIVE" "$URL"
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      if curl -L --fail -C - --retry 5 --retry-delay 5 --retry-all-errors -o "$ARCHIVE" "$URL"; then
+        touch "$ARCHIVE.done"
+        break
+      fi
+      echo "Download interrupted (attempt $attempt); resuming in 10 s ..."
+      sleep 10
+    done
+    [ -f "$ARCHIVE.done" ] || { echo "Download failed; rerun this script to resume." >&2; exit 1; }
   fi
   echo "Extracting to $RAW ..."
   tar -xf "$ARCHIVE" -C "$RAW"
@@ -22,4 +31,4 @@ fi
 # Some copies wrap the categories in an extra VisA/ folder.
 [ -d "$RAW/VisA/pcb4" ] && RAW="$RAW/VisA"
 python scripts/prepare_visa.py --raw "$RAW" --out "$DEST/visa"
-echo "You can delete $ARCHIVE once this has finished."
+echo "You can now delete $ARCHIVE and $ARCHIVE.done."
