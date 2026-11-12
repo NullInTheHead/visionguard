@@ -414,6 +414,38 @@ and 1% available, but it does not repair drift; that still needs deployment cali
 (11.2). At fraction 50%, training conformal at α = 1% gives a mean false-reject rate of
 2.9%, driven by leather (15.6%), wood (3.5%) and zipper (3.1%).
 
+### 11.4 Extreme-value tail fit (pre-registered)
+
+**Question.** Split conformal needs n ≥ 1/α − 1 calibration images, so a deployment
+session with 20–80 defect-free parts can target 10% but rarely 5% or 1%. A fitted tail
+can extrapolate to any α, without a guarantee. Does it control the false-reject rate
+where conformal is not available, and does it behave like conformal where both are?
+
+**Rule (fixed before any fit on real scores).** Peaks over threshold: with n calibration
+scores, the top ⌊0.3 n⌋ form the tail (at least 5 needed, else *not available*); u is the
+largest score below them; a generalized Pareto distribution is fitted by maximum
+likelihood to the exceedances (location fixed at 0); threshold = u + its
+(1 − α n / ⌊0.3 n⌋) quantile. A failed fit is reported as not available. The tail
+fraction 0.3 is fixed, not tuned; 0.2 and 0.5 are reported as a sensitivity check only.
+
+**Runs.** (a) *Deployment EVT* is added as a rule to the 11.2 simulation (E1 scores, half
+of the defect-free test images as calibration, 1,000 draws), with *training EVT* on the E1
+calibration images, at α = 10%, 5% and 1%. (b) *Training EVT* on the 11.3 scores
+(fractions 10 / 25 / 50%, 3 seeds), next to training conformal. Development categories are
+the evidence; held-out ones post-hoc.
+
+**Predictions, recorded before the run.**
+
+1. Where both are available, EVT and conformal give similar false-reject rates (mean
+   absolute difference at most 0.03 at α = 10%, same calibration images), and training
+   EVT exceeds α beyond the conformal rate's spread in leather and wood: a tail fit does
+   not remove drift.
+2. Deployment EVT at α = 5% keeps the mean false-reject rate at or below 2α in at least
+   8 of 9 development categories, but above α in some: an approximation, not a guarantee.
+3. At α = 1% with 20–80 deployment images, deployment EVT is unreliable: in most
+   development categories more than 30% of single draws exceed α.
+4. Results move noticeably with the tail fraction (0.2 vs 0.5) at small n, less at n > 100.
+
 ## 12. Backbone comparison (RQ4)
 
 Each backbone is reported on four dimensions, not one AUROC. Defect-size bins are fixed
@@ -533,3 +565,4 @@ Either outcome is reported.
 * v1.7 (2026-11-12) — Section 11.1 outcome (twins not supported as main cause; drift in leather and wood, zipper mixed); section 11.2 deployment calibration, design and predictions recorded before the run on real scores. α = 10% added as the main testable target (α = 1% needs 99 calibration images, unavailable in MVTec AD's test sets).
 * v1.8 (2026-11-12) — Section 11.2 outcome; section 11.3 calibration-size study, design and predictions recorded before the run. No frozen setting changed.
 * v1.9 (2026-11-12) — Section 11.3 outcome (3 of 4 predictions held, one partly). No frozen setting changed.
+* v1.10 (2026-11-12) — Section 11.4 extreme-value tail fit: rule, runs and predictions recorded before any fit on real scores. No frozen setting changed.
