@@ -252,7 +252,8 @@ realised rate exceeds α (the violation rate). Targets: α ∈ {1%, 5%}.
 **Calibration size.** Run on development categories with calibration fractions 10%, 25%
 and 50% of the training images, to measure the trade-off between a larger calibration set
 (a valid conformal threshold) and a smaller memory bank (lower AUROC). Categories with too
-few training images for a given fraction are reported as such.
+few training images for a given fraction are reported as such. Design and predictions:
+section 11.3.
 
 **Exchangeability under shift.** Each method is also applied to E3 corrupted test images,
 with calibration on clean images, to measure how the false-reject rate breaks when the
@@ -346,6 +347,53 @@ evidence; held-out categories are reported as post-hoc.
 It needs defect-free images from each new deployment session, which is a real cost on a
 production line. The test-session images also serve as evaluation goods, so this measures
 validity within one session, not across sessions.
+
+### 11.3 Calibration size (pre-registered)
+
+**Outcome of 11.2 (2026-11-12, `scripts/deployment_calibration.py`).** At α = 10%,
+deployment split conformal kept the mean false-reject rate at or below α in all 9
+development and all 5 held-out categories where it was available, at its exact expected
+rate (prediction 1 held). Training split conformal exceeded α on average in 6 of 9
+development categories and 3 of 5 held-out ones, but an exact test of one fixed
+calibration draw (the count of rejected goods is beta-binomial(m, n + 1 − k, k) under
+exchangeability) puts it beyond chance only in leather and wood (development) and carpet
+and screw (post-hoc); pill and zipper were not significant (prediction 2 partly held).
+Recall cost where drift is large: pill 0.93 → 0.84, screw 0.99 → 0.87, carpet 1.00 →
+0.93 (prediction 3 held). About a quarter of single draws exceeded α even where the mean
+was controlled (prediction 4 held).
+
+**Question.** Does a larger calibration set drawn from the *training* images help: more
+stable thresholds and a valid conformal threshold at smaller α, at the price of a smaller
+memory bank? Or is the failure in drifted products a property of the data that more
+calibration images cannot fix?
+
+**Design** (`scripts/calibration_size.py`, WRN-50, frozen E1 settings, development
+categories; held-out categories only with `--allow-held-out`, labelled post-hoc).
+Calibration fractions 10%, 25% and 50% of each category's training images, three random
+calibration draws each (seeds 0, 1, 2; fraction 10% with seed 0 is the E1 split and must
+reproduce E1's image AUROC). The bank is a 10% coreset of the remaining images. Reported
+per category, fraction and seed: calibration and bank sizes, image AUROC, pixel AUROC,
+AU-PRO; for training split conformal at α = 10%, 5% and 1% (where n ≥ 1/α − 1), the
+false-reject rate on all defect-free test images, recall, and the exact beta-binomial
+p-value; for max + margin (m = 0.13), the false-reject rate and recall.
+
+Calibration sizes (fraction 10 / 25 / 50%): 21–27 / 52–67 / 104–134 images, toothbrush
+6 / 15 / 30. α = 1% (99 images) becomes available at 50% in 9 of 10 development
+categories, but with 42–167 defect-free test images a 1% rate cannot be resolved; it is
+reported, not judged.
+
+**Predictions, recorded before the run.**
+
+1. A smaller bank costs little ranking: mean development image AUROC falls by at most
+   0.005 and mean AU-PRO by at most 0.01 from fraction 10% to 50%.
+2. More calibration images do not fix drift: at α = 10%, training split conformal stays
+   beyond chance (p < 0.05) in leather and wood at every fraction, in at least 2 of 3
+   seeds. Because the test gains power with n, pill and zipper may become significant too.
+3. Where 11.2 found no drift (tile, capsule, metal_nut, bottle, cable, toothbrush), most
+   category-fraction cells stay non-significant, and the spread of the training
+   conformal false-reject rate across seeds shrinks as the fraction grows.
+4. Max + margin stays far below α everywhere and loses recall as the fraction grows,
+   because the maximum of a larger calibration set is higher.
 
 ## 12. Backbone comparison (RQ4)
 
@@ -464,3 +512,4 @@ Either outcome is reported.
 * v1.5 (2026-11-11) — Section 16: post-hoc diagnostics; 16.1 rotation-augmented few-shot banks (E2c), with design and predictions recorded before any run. No frozen setting changed.
 * v1.6 (2026-11-11) — Section 11.1: exchangeability check result (calibration and test defect-free images not exchangeable in 4 of 10 development categories) and the twins-vs-drift diagnostic with its predictions, recorded before it is run.
 * v1.7 (2026-11-12) — Section 11.1 outcome (twins not supported as main cause; drift in leather and wood, zipper mixed); section 11.2 deployment calibration, design and predictions recorded before the run on real scores. α = 10% added as the main testable target (α = 1% needs 99 calibration images, unavailable in MVTec AD's test sets).
+* v1.8 (2026-11-12) — Section 11.2 outcome; section 11.3 calibration-size study, design and predictions recorded before the run. No frozen setting changed.
