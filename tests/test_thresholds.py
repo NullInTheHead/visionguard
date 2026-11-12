@@ -184,3 +184,42 @@ def test_deployment_calibration_end_to_end(tmp_path, monkeypatch):
     assert not lea.loc["deployment conformal", "exceeds_alpha"]
     assert df[df.category == "screw"].role.iloc[0] == "held_out (post-hoc)"
     assert (out / "deployment_calibration_wrn50.png").is_file()
+
+
+def test_threshold_columns_marks_unavailable_alphas():
+    cs = _load_script("calibration_size")
+    rng = np.random.default_rng(5)
+    cal, goods, defects = rng.normal(1, 0.05, 30), rng.normal(1, 0.05, 80), rng.normal(2, 0.1, 20)
+    row = cs.threshold_columns(cal, goods, defects, [0.10, 0.05, 0.01], margin=0.13)
+    assert row["conformal10_available"] and row["conformal5_available"]
+    assert not row["conformal1_available"] and row["conformal1_fpr"] is None
+    assert row["margin_fpr"] == 0.0 and row["margin_recall"] == 1.0
+    assert row["conformal5_fpr"] <= row["conformal10_fpr"]
+
+
+def test_calibration_size_end_to_end(twins, tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    cs = _load_script("calibration_size")
+    args = ["--root", str(twins), "--categories", "tile", "--backbone", "toy",
+            "--no-pretrained", "--out", str(tmp_path), "--fractions", "0.25", "0.5",
+            "--seeds", "0", "1"]  # fmt: skip
+    assert cs.main(args) == 0
+    df = pd.read_csv(tmp_path / "calibration_size_toy.csv")
+    assert len(df) == 4
+    assert sorted(df.n_calibration.unique()) == [10, 20]
+    assert (df[df.calibration_fraction == 0.5].n_reference == 20).all()
+    # A smaller reference set gives a smaller bank.
+    g = df.groupby("calibration_fraction").bank_patches.mean()
+    assert g[0.5] < g[0.25]
+    assert (
+        df.conformal10_available.all() and not df.conformal5_available[df.n_calibration == 10].any()
+    )
+    scores = pd.read_csv(tmp_path / "calibration_size_scores" / "toy_tile.csv")
+    assert set(scores.split) == {"calibration", "test"}
+    assert (tmp_path / "calibration_size_toy.png").is_file()
+
+
+def test_calibration_size_refuses_held_out(tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    cs = _load_script("calibration_size")
+    assert cs.main(["--categories", "screw", "--out", str(tmp_path)]) == 2
