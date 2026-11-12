@@ -1,8 +1,8 @@
 # VisionGuard evaluation protocol
 
-**Status: v1.6 (2026-11-11), frozen.** v1.0 settled decisions D1–D4 (section 10); v1.4
+**Status: v1.7 (2026-11-12), frozen.** v1.0 settled decisions D1–D4 (section 10); v1.4
 adds the research questions and the analysis plan for Phase 3 (sections 1, 11–14); v1.5
-adds post-hoc diagnostics (section 16); v1.6 records the first RQ2 result (section 11.1). This file
+adds post-hoc diagnostics (section 16); v1.6–v1.7 record RQ2 results and designs (sections 11.1–11.2). This file
 and `configs/split.yaml` were committed before any experiment touched a held-out category.
 Every later change goes in the change log with a reason, and no change may be motivated by
 held-out results.
@@ -288,6 +288,65 @@ Recorded before the diagnostic is run. Caveat: the blocked split assumes file nu
 follow capture order; if not, it is another random split and only the distances carry
 evidence. A mix of both explanations is possible and is reported as such.
 
+**Outcome (2026-11-12).** Near-twins are not supported as the main cause. Leather: the
+shift survives the blocked split (+9.1% random, +11.7% blocked) and defect-free test
+images are 3.1–3.2× farther from the bank than calibration images under both splits.
+Wood: 2.9–3.9× farther under both splits (its score shift is unstable between splits).
+Both match session drift. Zipper is mixed: the distance pattern looks like twins (1.8× →
+1.05×), but the score shift is unchanged (+10.7% → +10.5%). Pill is inconclusive. The
+other six development categories are exchangeable under both splits. With about 22
+calibration images, calibration statistics also vary noticeably between splits where
+nothing is wrong (capsule +4.6% random, −4.5% blocked).
+
+### 11.2 Deployment calibration (pre-registered)
+
+**Question.** If the drift is between the training session and the test session, can a
+threshold calibrated on a few defect-free parts *from the test session* control the
+false-reject rate where one calibrated on training images cannot?
+
+**Design** (`scripts/deployment_calibration.py`, from the E1 per-image scores; the memory
+bank is the E1 bank and is not changed). For each category, R = 1,000 times: draw half of
+the defect-free test images at random as *deployment calibration* images; the other half
+are the evaluation goods; every defective test image is used for recall. Each threshold
+rule is applied on the same draws:
+
+| Rule | Calibration images | Guarantee claimed |
+|---|---|---|
+| Training max + margin (current) | held-back training images (E1) | none |
+| Training split conformal | held-back training images (E1) | only if exchangeable with test goods |
+| Deployment max + margin | deployment calibration images | none |
+| Deployment split conformal | deployment calibration images | marginal, by construction (drawn from the same session as the evaluation goods) |
+
+Split conformal: threshold = the ⌈(n + 1)(1 − α)⌉-th smallest calibration score; an image
+is rejected when its score is strictly above it. Valid only for n ≥ 1/α − 1; a rule with
+too few calibration images at a given α is reported as *not available*, never filled in.
+
+**Targets.** α = 10% (the main target: with half of each test set, 14 of 15 categories
+have the 9 calibration images it needs) and α = 5% (4 of 15 categories have the 19 it
+needs). α = 1% needs 99 images and is not testable with MVTec AD's test sets; that is
+reported as a limit of the data.
+
+**Reported per category, rule and α:** mean false-reject rate on the evaluation goods
+over the 1,000 draws (with a 95% interval of the Monte-Carlo mean), the share of draws
+whose false-reject rate exceeds α, and mean recall. Development categories are the
+evidence; held-out categories are reported as post-hoc.
+
+**Predictions, recorded before the run on real scores.**
+
+1. Deployment split conformal keeps the mean false-reject rate at or below α in every
+   category where it is available, up to Monte-Carlo noise.
+2. Training split conformal exceeds α in the drifted categories (development: leather,
+   zipper, wood, pill; post-hoc: carpet, screw) and stays at or below α in most others.
+3. Where the drift is large, deployment calibration raises the threshold, so honest
+   false-reject control costs recall. The size of that cost is reported per category.
+4. The share of draws exceeding α is substantial even where the mean is controlled,
+   because the guarantee is marginal: one deployed threshold can still be unlucky.
+
+**Caveats.** Deployment calibration assumes the calibration parts are verified defect-free.
+It needs defect-free images from each new deployment session, which is a real cost on a
+production line. The test-session images also serve as evaluation goods, so this measures
+validity within one session, not across sessions.
+
 ## 12. Backbone comparison (RQ4)
 
 Each backbone is reported on four dimensions, not one AUROC. Defect-size bins are fixed
@@ -404,3 +463,4 @@ Either outcome is reported.
 * v1.4 (2026-11-11) — Research questions RQ1–RQ4; threshold calibration study with its success criterion, the precise conformal guarantee and the leakage restriction (section 11); backbone reporting on four dimensions with frozen defect-size bins (section 12); efficiency measurements logged in every run (section 13); related work (section 14); open decision D5. E2a coreset ratio fixed at 10%; E2b reports threshold-free metrics only. No setting of v1.3 changed.
 * v1.5 (2026-11-11) — Section 16: post-hoc diagnostics; 16.1 rotation-augmented few-shot banks (E2c), with design and predictions recorded before any run. No frozen setting changed.
 * v1.6 (2026-11-11) — Section 11.1: exchangeability check result (calibration and test defect-free images not exchangeable in 4 of 10 development categories) and the twins-vs-drift diagnostic with its predictions, recorded before it is run.
+* v1.7 (2026-11-12) — Section 11.1 outcome (twins not supported as main cause; drift in leather and wood, zipper mixed); section 11.2 deployment calibration, design and predictions recorded before the run on real scores. α = 10% added as the main testable target (α = 1% needs 99 calibration images, unavailable in MVTec AD's test sets).
