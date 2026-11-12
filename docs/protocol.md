@@ -263,7 +263,7 @@ exchangeability assumption fails.
 (protocol v1.3). Therefore any new rule, and any parameter of it, is designed on the
 development categories only, with leave-one-category-out estimates; its held-out numbers
 are labelled *post-hoc*. A clean independent test needs data not yet looked at
-(decision D5).
+(decision D5: VisA, section 11.5).
 
 ### 11.1 Exchangeability check (first result) and follow-up diagnostic
 
@@ -471,6 +471,40 @@ with about 113 training calibration images, it gives 2.4% at α = 1% where split
 gives 0.7%. Small α needs more calibration images, not extrapolation; split conformal on
 deployment images remains the deployable rule.
 
+### 11.5 Clean test on VisA (pre-registered)
+
+**Question.** Does the conclusion of 11.2–11.4 hold on products never used for any
+decision: split conformal on deployment calibration images controls the false-reject
+rate at α, and how do the other rules behave?
+
+**What VisA can and cannot test.** In VisA's official split, the defect-free test images
+of each product are drawn at random from the same pool as its training images (checked
+from the split file only: test file numbers spread over the whole range). Training and
+test goods are therefore exchangeable by construction. VisA tests validity on new
+products without session drift, and whether training calibration then works; it does not
+test drift (that would need MVTec AD 2, left for later).
+
+**Frozen settings, nothing tuned on VisA.** E1 exactly as on MVTec AD (`configs/
+e1_visa.yaml` extends `configs/e1.yaml`): WRN-50, square resize to 256 and centre crop
+224, 10% coreset, 9-neighbour reweighting, σ = 4, calibration fraction 10% (seed 0),
+m = 0.13. Then `scripts/threshold_analysis.py` and `scripts/deployment_calibration.py`
+unchanged (1,000 half-splits; α = 10%, 5%, 1%). All 12 products are reported, failures
+included. Calibration sizes: training 45–91 images (α = 5% available everywhere, α = 1%
+nowhere); deployment 25–50 images (α = 10% and 5% everywhere).
+
+**Predictions, recorded before any VisA image is loaded.**
+
+1. Ranking is lower than on MVTec AD: mean image AUROC between 0.93 and 0.97.
+2. Deployment split conformal keeps the mean false-reject rate at or below α in all 12
+   products, at α = 10% and at α = 5%, up to Monte-Carlo noise.
+3. With exchangeable data, training split conformal is beyond chance (exact test,
+   p < 0.05) in at most 2 of 12 products at α = 10% (about 0.6 expected by chance alone).
+4. Max + margin (m = 0.13) keeps the mean false-reject rate across products at or below
+   1%, with lower recall than either conformal rule at α = 10% in every product, and mean
+   recall below MVTec AD's 0.83.
+5. Training EVT at α = 5% exceeds α (beyond its Monte-Carlo interval) in more products
+   than training split conformal does.
+
 ## 12. Backbone comparison (RQ4)
 
 Each backbone is reported on four dimensions, not one AUROC. Defect-size bins are fixed
@@ -526,11 +560,13 @@ product, reference-data and imaging shift) and the matched-backbone comparison o
 (model size and patch grid held fixed, pretraining varied). A full literature search is
 done before any novelty claim.
 
-## 15. Open decision
+## 15. Decision D5 (settled 2026-11-12): VisA is the clean test set
 
-**D5 — Clean test set for RQ2.** Options: VisA (12 products) or MVTec AD 2 (8 scenarios,
-including lighting changes). Settled before any new threshold rule is evaluated on data
-outside the development categories.
+VisA (Zou et al., ECCV 2022; 12 products, 10,821 images, CC BY 4.0) with the authors'
+official one-class split (`configs/visa_split_1cls.csv`, copied verbatim). Chosen over
+MVTec AD 2 because its test sets (50–101 defect-free images per product) are large enough
+to test α = 5% with deployment calibration in every product. No VisA image has been looked
+at. Design and predictions: section 11.5.
 
 ## 16. Post-hoc diagnostics
 
@@ -592,3 +628,4 @@ Either outcome is reported.
 * v1.9 (2026-11-12) — Section 11.3 outcome (3 of 4 predictions held, one partly). No frozen setting changed.
 * v1.10 (2026-11-12) — Section 11.4 extreme-value tail fit: rule, runs and predictions recorded before any fit on real scores. No frozen setting changed.
 * v1.11 (2026-11-12) — Section 11.4 outcome and the fit's implementation note.
+* v1.12 (2026-11-12) — D5 settled: VisA with its official one-class split is the clean test set (section 15); section 11.5 clean test, frozen settings and predictions recorded before any VisA image is loaded.
