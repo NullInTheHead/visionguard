@@ -10,6 +10,8 @@ recall. Four threshold rules are applied to the same draws:
     deployment max + margin   (1 + m) x max of the deployment calibration images
     deployment conformal      split conformal on the deployment calibration images
 
+    training EVT / deployment EVT   generalized Pareto tail fit (protocol section 11.4)
+
 Split conformal: threshold = the ceil((n + 1)(1 - alpha))-th smallest calibration score,
 an image is rejected when its score is strictly above it, and it is valid only for
 n >= 1/alpha - 1. Under exchangeability its expected false-reject rate is exactly
@@ -35,8 +37,10 @@ from scipy import stats  # noqa: E402
 
 from visionguard.config import load_config, load_split  # noqa: E402
 
-RULES = ["training max + margin", "training conformal", "deployment max + margin",
-         "deployment conformal"]  # fmt: skip
+RULES = ["training max + margin", "training conformal", "training EVT",
+         "deployment max + margin", "deployment conformal", "deployment EVT"]  # fmt: skip
+EVT_TAIL = 0.3  # protocol 11.4: fixed, not tuned
+EVT_MIN_TAIL = 5
 
 
 def conformal_rank(n: int, alpha: float) -> int | None:
@@ -74,6 +78,74 @@ def single_draw_p_value(goods: np.ndarray, cal: np.ndarray, alpha: float) -> flo
     return float(stats.betabinom(len(goods), len(cal) + 1 - k, k).sf(observed - 1))
 
 
+def evt_fit(cal: np.ndarray, tail: float = EVT_TAIL) -> tuple | None:
+    """Peaks over threshold: GPD fitted to the top floor(tail * n) scores above u."""
+    n = len(cal)
+    n_tail = int(math.floor(tail * n + 1e-9))
+    if n_tail < EVT_MIN_TAIL or n_tail >= n:
+        return None
+    x = np.sort(cal)
+    u = x[n - n_tail - 1]
+    exc = x[n - n_tail :] - u
+    if not np.all(np.isfinite(exc)) or exc.max() <= 0:
+        return None
+    fit = gpd_mle(exc)
+    if fit is None:
+        return None
+    c, scale = fit
+    return float(u), n_tail / n, c, scale
+
+
+def gpd_mle(x: np.ndarray) -> tuple[float, float] | None:
+    """Maximum-likelihood GPD (location 0) by the one-dimensional profile likelihood.
+
+    With theta = shape / scale, the shape that maximises the likelihood for a given theta is
+    k(theta) = mean(log(1 + theta x)), and the profile log-likelihood is
+    -n (log(k / theta) + k + 1). It is maximised over theta with the shape kept >= -1
+    (below that the likelihood is unbounded). Same estimate as scipy.stats.genpareto.fit
+    with floc=0, about 100x faster.
+    """
+    from scipy.optimize import minimize_scalar
+
+    x = np.asarray(x, dtype=float)
+    xmax, mean = x.max(), x.mean()
+    if xmax <= 0:
+        return None
+
+    def negloglik(s: float) -> float:
+        t = math.sinh(s)  # theta * xmax, in (-1, inf)
+        if abs(t) < 1e-9:  # exponential limit
+            return math.log(mean) + 1
+        k = float(np.log1p(t * x / xmax).mean())
+        if k < -1:
+            return 1e6 * (1 + (-1 - k))
+        return math.log(k / (t / xmax)) + k + 1
+
+    lo, hi = math.asinh(-1 + 1e-9), math.asinh(1e4)
+    res = minimize_scalar(negloglik, bounds=(lo, hi), method="bounded",
+                          options={"xatol": 1e-7})  # fmt: skip
+    best = min((res.x, 0.0), key=negloglik)  # the exponential fit can win at the boundary
+    t = math.sinh(best)
+    if abs(t) < 1e-9:
+        return 0.0, float(mean)
+    c = float(np.log1p(t * x / xmax).mean())
+    scale = c / (t / xmax)
+    if not (np.isfinite(c) and np.isfinite(scale) and scale > 0):
+        return None
+    return c, float(scale)
+
+
+def evt_threshold(fit: tuple | None, alpha: float) -> float | None:
+    """The (1 - alpha) quantile of the fitted tail model; None if unavailable."""
+    if fit is None:
+        return None
+    u, p_tail, c, scale = fit
+    if alpha >= p_tail:
+        return None
+    t = u + float(stats.genpareto.ppf(1 - alpha / p_tail, c, loc=0, scale=scale))
+    return t if np.isfinite(t) else None
+
+
 def simulate(
     goods: np.ndarray,
     defects: np.ndarray,
@@ -90,6 +162,8 @@ def simulate(
     dep = np.sort(goods[perms[:, :n_dep]], axis=1)  # (R, n_dep), sorted per draw
     evals = goods[perms[:, n_dep:]]  # (R, n_eval)
 
+    train_fit = evt_fit(train_cal)
+    dep_fits = [evt_fit(d) for d in dep]
     rows = []
     for alpha in alphas:
         thresholds = {
@@ -103,6 +177,14 @@ def simulate(
         k = conformal_rank(n_dep, alpha)
         thresholds["deployment conformal"] = None if k is None else dep[:, k - 1]
         n_cal["deployment conformal"] = n_dep
+        t = evt_threshold(train_fit, alpha)
+        thresholds["training EVT"] = None if t is None else np.full(repeats, t)
+        n_cal["training EVT"] = len(train_cal)
+        dep_t = np.array([np.nan if (v := evt_threshold(f, alpha)) is None else v
+                          for f in dep_fits])  # fmt: skip
+        # Available only if the fit works in every draw (else a biased subset is reported).
+        thresholds["deployment EVT"] = None if np.isnan(dep_t).any() else dep_t
+        n_cal["deployment EVT"] = n_dep
 
         for rule in RULES:
             thr = thresholds[rule]
@@ -146,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--backbone", default="wrn50")
     p.add_argument("--scores", default="results/e1/scores")
     p.add_argument("--out", default="results/thresholds")
-    p.add_argument("--alphas", nargs="*", type=float, default=[0.10, 0.05])
+    p.add_argument("--alphas", nargs="*", type=float, default=[0.10, 0.05, 0.01])
     p.add_argument("--repeats", type=int, default=1000)
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args(argv)
@@ -214,14 +296,15 @@ def _figure(df: pd.DataFrame, path: Path, backbone: str, alpha: float) -> None:
     d = df[(df.alpha == alpha) & df.available]
     cats = list(dict.fromkeys(df.category))
     y = {c: i for i, c in enumerate(cats)}
-    fig, ax = plt.subplots(figsize=(7.2, 0.36 * len(cats) + 1.4))
+    fig, ax = plt.subplots(figsize=(7.6, 0.5 * len(cats) + 1.4))
     styles = {"training max + margin": ("C0", "o", False), "training conformal": ("C0", "s", True),
-              "deployment max + margin": ("C1", "o", False),
-              "deployment conformal": ("C1", "s", True)}  # fmt: skip
+              "training EVT": ("C0", "^", True), "deployment max + margin": ("C1", "o", False),
+              "deployment conformal": ("C1", "s", True),
+              "deployment EVT": ("C1", "^", True)}  # fmt: skip
     for n, rule in enumerate(RULES):
         r = d[d.rule == rule]
         color, marker, filled = styles[rule]
-        ys = [y[c] + (n - 1.5) * 0.16 for c in r.category]
+        ys = [y[c] + (n - 2.5) * 0.13 for c in r.category]
         ax.errorbar(r.mean_fpr, ys, xerr=[r.mean_fpr - r.mean_fpr_ci_low,
                     r.mean_fpr_ci_high - r.mean_fpr], fmt=marker, color=color, ms=5,
                     mfc=color if filled else "white", lw=0.8, label=rule)  # fmt: skip

@@ -178,7 +178,7 @@ def test_deployment_calibration_end_to_end(tmp_path, monkeypatch):
     out = tmp_path / "out"
     assert dc.main(["--scores", str(scores), "--out", str(out), "--repeats", "300"]) == 0
     df = pd.read_csv(out / "deployment_calibration_wrn50.csv")
-    assert set(df.rule) == set(dc.RULES) and set(df.alpha) == {0.10, 0.05}
+    assert set(df.rule) == set(dc.RULES) and set(df.alpha) == {0.10, 0.05, 0.01}
     lea = df[(df.category == "leather") & (df.alpha == 0.10)].set_index("rule")
     assert lea.loc["training conformal", "exceeds_alpha"]
     assert not lea.loc["deployment conformal", "exceeds_alpha"]
@@ -223,3 +223,49 @@ def test_calibration_size_refuses_held_out(tmp_path, monkeypatch):
     monkeypatch.chdir(REPO)
     cs = _load_script("calibration_size")
     assert cs.main(["--categories", "screw", "--out", str(tmp_path)]) == 2
+
+
+def test_evt_threshold_recovers_a_known_tail():
+    dc = _load_script("deployment_calibration")
+    rng = np.random.default_rng(7)
+    cal = rng.exponential(1.0, 2000)
+    fit = dc.evt_fit(cal)
+    # Exponential tail: true 1% quantile = ln(100).
+    assert dc.evt_threshold(fit, 0.01) == pytest.approx(np.log(100), rel=0.1)
+    assert dc.evt_threshold(fit, 0.5) is None  # alpha above the tail share
+    assert dc.evt_fit(cal[:10]) is None  # 3 tail points < 5
+    assert dc.evt_threshold(None, 0.05) is None
+
+
+@pytest.mark.parametrize("shape", [-0.4, 0.0, 0.3])
+def test_gpd_mle_matches_scipy(shape):
+    from scipy import stats
+
+    dc = _load_script("deployment_calibration")
+    x = stats.genpareto.rvs(shape, scale=0.2, size=40, random_state=11)
+    c, scale = dc.gpd_mle(x)
+    c_ref, _, scale_ref = stats.genpareto.fit(x, floc=0)
+    ll = stats.genpareto.logpdf(x, c, scale=scale).sum()
+    ll_ref = stats.genpareto.logpdf(x, c_ref, scale=scale_ref).sum()
+    assert ll >= ll_ref - 1e-3  # at least as good a fit as scipy's optimiser
+
+
+def test_evt_analysis_end_to_end(tmp_path):
+    ea = _load_script("evt_analysis")
+    rng = np.random.default_rng(8)
+    d = tmp_path / "scores"
+    d.mkdir()
+    rows = []
+    for fraction, n in ((0.25, 30), (0.5, 60)):
+        for split, label, values in (("calibration", 0, rng.normal(1, 0.1, n)),
+                                     ("test", 0, rng.normal(1, 0.1, 50)),
+                                     ("test", 1, rng.normal(2, 0.1, 20))):  # fmt: skip
+            for v in values:
+                rows.append({"calibration_fraction": fraction, "seed": 0, "split": split,
+                             "label": label, "score": v})  # fmt: skip
+    pd.DataFrame(rows).to_csv(d / "toy_tile.csv", index=False)
+    assert ea.main(["--backbone", "toy", "--scores", str(d), "--out", str(tmp_path)]) == 0
+    df = pd.read_csv(tmp_path / "evt_training_toy.csv")
+    assert set(df.rule) == {"conformal", "evt tail 0.3", "evt tail 0.2", "evt tail 0.5"}
+    ok = df[df.available & (df.rule == "evt tail 0.3")]
+    assert (ok.recall == 1.0).all() and (ok.fpr <= 0.3).all()

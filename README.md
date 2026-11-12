@@ -318,6 +318,17 @@ Halving the memory bank costs almost no ranking and makes a 1% target possible, 
 drifted products stay drifted: calibration has to come from the deployment session.
 See `results/thresholds/calibration_size_wrn50.png`.
 
+Last, can a fitted tail (extreme-value theory) reach small targets that conformal cannot?
+
+```bash
+python scripts/evt_analysis.py           # tail fit on training calibration images
+```
+
+No. With about 113 training calibration images on products without drift, it gives 2.4%
+false rejects at a 1% target, where split conformal gives 0.7%; on deployment images it
+lands at 3-4x a 1% target. Small targets need more calibration images, not
+extrapolation (protocol section 11.4).
+
 ## Repository layout
 
 ```
@@ -335,7 +346,7 @@ src/visionguard/
 scripts/            setup_mvtec.sh, inspect_data.py, run_e1.py, run_anomalib_reference.py,
                     choose_margin.py, apply_threshold.py, make_tables.py, run_e2.py,
                     threshold_analysis.py, calibration_diagnostic.py,
-                    deployment_calibration.py, calibration_size.py, (run_e3.py)
+                    deployment_calibration.py, calibration_size.py, evt_analysis.py, (run_e3.py)
 results/            CSVs and figures (committed)
 tests/              unit tests on a synthetic MVTec tree
 app/                demo (Phase 5)

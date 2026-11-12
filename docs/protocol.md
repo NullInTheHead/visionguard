@@ -446,6 +446,31 @@ the evidence; held-out ones post-hoc.
    development categories more than 30% of single draws exceed α.
 4. Results move noticeably with the tail fraction (0.2 vs 0.5) at small n, less at n > 100.
 
+**Implementation note.** The maximum-likelihood fit is computed by the one-dimensional
+profile likelihood, with the shape kept at or above −1 (below it the likelihood is
+unbounded); a unit test checks it fits at least as well as `scipy.stats.genpareto.fit`.
+
+**Outcome (2026-11-12).**
+
+1. Held. On the 11.3 scores at α = 10%, training EVT and training conformal differ by
+   0.026 on average (84 cells), and EVT stays far above α in leather (0.90) and wood
+   (0.44). EVT is slightly less conservative throughout: on the 11.2 run it exceeds α in
+   7 of 9 development categories (conformal 6).
+2. Not testable as registered. With half of each test set as deployment calibration, the
+   30% tail holds at least 5 points in only 4 of 15 categories (cable among the
+   development ones; hazelnut, screw, transistor post-hoc). Cable at α = 5%: 4.2%. The
+   three held-out ones: 6.3–7.7%, all above α and below 2α.
+3. Held where testable. At α = 1%, deployment EVT gives 2.8–4.1% (3–4× the target), and
+   26–47% of single draws exceed α.
+4. Held, modestly. At α = 1% the mean false-reject rate across tail fractions 0.2 / 0.3
+   / 0.5 is 0.081 / 0.105 / 0.102 with about 22 calibration images and 0.053 / 0.057 /
+   0.055 with about 113.
+
+Conclusion: the tail fit does not buy small-α control. Even on products without drift and
+with about 113 training calibration images, it gives 2.4% at α = 1% where split conformal
+gives 0.7%. Small α needs more calibration images, not extrapolation; split conformal on
+deployment images remains the deployable rule.
+
 ## 12. Backbone comparison (RQ4)
 
 Each backbone is reported on four dimensions, not one AUROC. Defect-size bins are fixed
@@ -566,3 +591,4 @@ Either outcome is reported.
 * v1.8 (2026-11-12) — Section 11.2 outcome; section 11.3 calibration-size study, design and predictions recorded before the run. No frozen setting changed.
 * v1.9 (2026-11-12) — Section 11.3 outcome (3 of 4 predictions held, one partly). No frozen setting changed.
 * v1.10 (2026-11-12) — Section 11.4 extreme-value tail fit: rule, runs and predictions recorded before any fit on real scores. No frozen setting changed.
+* v1.11 (2026-11-12) — Section 11.4 outcome and the fit's implementation note.
