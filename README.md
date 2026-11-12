@@ -300,6 +300,24 @@ python scripts/deployment_calibration.py
 
 See `results/thresholds/deployment_calibration_wrn50.png`.
 
+Could more *training* calibration images fix it instead? Holding back 10%, 25% or 50% of
+the training images (3 random draws each, development categories):
+
+```bash
+python scripts/calibration_size.py
+```
+
+| held back for calibration | 10% | 25% | 50% |
+|---|---|---|---|
+| image AUROC (mean) | 0.990 | 0.989 | 0.988 |
+| leather / wood beyond chance at alpha = 10% (seeds) | 3/3, 3/3 | 3/3, 3/3 | 3/3, 3/3 |
+| products without drift beyond chance (cells) | 0 of 15 | 0 of 18 | 0 of 18 |
+| max + margin recall | 0.79 | 0.73 | 0.66 |
+
+Halving the memory bank costs almost no ranking and makes a 1% target possible, but
+drifted products stay drifted: calibration has to come from the deployment session.
+See `results/thresholds/calibration_size_wrn50.png`.
+
 ## Repository layout
 
 ```
@@ -317,7 +335,7 @@ src/visionguard/
 scripts/            setup_mvtec.sh, inspect_data.py, run_e1.py, run_anomalib_reference.py,
                     choose_margin.py, apply_threshold.py, make_tables.py, run_e2.py,
                     threshold_analysis.py, calibration_diagnostic.py,
-                    deployment_calibration.py, (run_e3.py)
+                    deployment_calibration.py, calibration_size.py, (run_e3.py)
 results/            CSVs and figures (committed)
 tests/              unit tests on a synthetic MVTec tree
 app/                demo (Phase 5)

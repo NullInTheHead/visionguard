@@ -395,6 +395,25 @@ reported, not judged.
 4. Max + margin stays far below α everywhere and loses recall as the fraction grows,
    because the maximum of a larger calibration set is higher.
 
+**Outcome (2026-11-12, development categories, 3 seeds; fraction 10% seed 0 reproduces
+E1 exactly).**
+
+1. Held. Mean image AUROC 0.990 → 0.989 → 0.988 and AU-PRO 0.919 → 0.918 → 0.918 at
+   fractions 10 / 25 / 50%: halving the bank costs almost no ranking.
+2. Held. At α = 10%, training split conformal is beyond chance in leather and wood in
+   3 of 3 seeds at every fraction (mean false-reject rate: leather 0.93 / 0.92 / 0.85,
+   wood 0.30 / 0.42 / 0.42). Zipper becomes significant in 2 of 3 seeds at 25% only;
+   pill never. The test gains power with n: at α = 5%, significant cells rise from 4 to 9.
+3. Partly held. Where 11.2 found no drift, 0 of 51 cells are beyond chance. The seed
+   spread of the false-reject rate does not shrink steadily (mean SD across bottle,
+   cable, capsule, metal_nut and tile: 0.047 / 0.027 / 0.037).
+4. Held. Max + margin false-reject rate 0.7% → 0.4% → 0.1%; recall 0.79 → 0.73 → 0.66.
+
+Conclusion: a larger training calibration set is nearly free (in ranking) and makes α = 5%
+and 1% available, but it does not repair drift; that still needs deployment calibration
+(11.2). At fraction 50%, training conformal at α = 1% gives a mean false-reject rate of
+2.9%, driven by leather (15.6%), wood (3.5%) and zipper (3.1%).
+
 ## 12. Backbone comparison (RQ4)
 
 Each backbone is reported on four dimensions, not one AUROC. Defect-size bins are fixed
@@ -513,3 +532,4 @@ Either outcome is reported.
 * v1.6 (2026-11-11) — Section 11.1: exchangeability check result (calibration and test defect-free images not exchangeable in 4 of 10 development categories) and the twins-vs-drift diagnostic with its predictions, recorded before it is run.
 * v1.7 (2026-11-12) — Section 11.1 outcome (twins not supported as main cause; drift in leather and wood, zipper mixed); section 11.2 deployment calibration, design and predictions recorded before the run on real scores. α = 10% added as the main testable target (α = 1% needs 99 calibration images, unavailable in MVTec AD's test sets).
 * v1.8 (2026-11-12) — Section 11.2 outcome; section 11.3 calibration-size study, design and predictions recorded before the run. No frozen setting changed.
+* v1.9 (2026-11-12) — Section 11.3 outcome (3 of 4 predictions held, one partly). No frozen setting changed.
