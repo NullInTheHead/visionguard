@@ -548,6 +548,30 @@ here, from the Phase 1 inventory (area as a share of the image):
 The ViT layer sweep allowed by section 4 is run on development categories before any
 held-out ViT result; its outcome goes in the change log.
 
+### 12.1 ViT layer sweep (pre-registered)
+
+**Design** (`scripts/vit_layer_sweep.py`). For each ViT backbone (supervised ViT-B/16,
+DINOv2 ViT-B/14, CLIP ViT-B/16), three pairs of 0-based blocks out of 12: (2, 5), (3, 7)
+(the starting point of section 3, "blocks 4 + 8") and (5, 9). Everything else is the E1
+setting: input size and 28 × 28 grid of section 3, 10% coreset, calibration 10% (seed 0).
+E1 on the 10 development categories only; no held-out or VisA image is scored by any ViT
+before the sweep is closed.
+
+**Selection rule.** Per backbone, the pair with the highest mean over development
+categories of (image AUROC + AU-PRO) / 2. If another pair is within 0.002 of the best, the
+one whose deeper block is shallower wins (cheaper). The selected pairs are then frozen for
+every ViT run (E1 held-out, E2, E3, VisA) and recorded in the change log.
+
+**Predictions, recorded before the run.**
+
+1. DINOv2 is best with the deepest pair (5, 9); supervised ViT and CLIP are best with
+   (2, 5) or (3, 7).
+2. No ViT beats WRN-50's development mean image AUROC (0.991) by more than 0.005: the
+   development set is near its ceiling, so the comparison has to come from the four
+   dimensions of section 12, not this number.
+3. CLIP has the lowest AU-PRO of the three at its selected pair.
+4. Scoring a ViT costs at most twice WRN-50's time per image on the same machine.
+
 ## 13. Efficiency measurements
 
 Logged for every run (E1, E2, E3), so cost is measured on the same runs as accuracy:
@@ -651,3 +675,4 @@ Either outcome is reported.
 * v1.11 (2026-11-12) — Section 11.4 outcome and the fit's implementation note.
 * v1.12 (2026-11-12) — D5 settled: VisA with its official one-class split is the clean test set (section 15); section 11.5 clean test, frozen settings and predictions recorded before any VisA image is loaded.
 * v1.13 (2026-11-14) — Section 11.5 outcome on VisA: 4 of 5 predictions held, the ranking prediction missed. No setting changed.
+* v1.14 (2026-11-14) — Section 12.1 ViT layer sweep: candidates, selection rule and predictions recorded before any ViT run.
