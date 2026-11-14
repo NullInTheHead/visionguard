@@ -1,0 +1,13 @@
+backbone,category,role,n_calibration,n_test_good,exceed_observed,exceed_expected,calibration_median,test_good_median,median_shift_pct,ks_p,mw_p_test_higher,shift_significant
+wrn50,candle,clean test,90,100,0.01,0.011,0.8346,0.8209,-1.6472,0.3729,0.7527,False
+wrn50,capsules,clean test,54,60,0.0,0.0182,1.5875,1.5791,-0.5296,0.7346,0.6962,False
+wrn50,cashew,clean test,45,50,0.0,0.0217,1.1046,1.0754,-2.6453,0.1867,0.9434,False
+wrn50,chewinggum,clean test,45,50,0.0,0.0217,1.1435,1.1091,-3.0045,0.001,0.9978,False
+wrn50,fryum,clean test,45,50,0.0,0.0217,1.0964,1.0774,-1.735,0.2258,0.8783,False
+wrn50,macaroni1,clean test,90,100,0.02,0.011,0.9442,0.9343,-1.0519,0.288,0.5863,False
+wrn50,macaroni2,clean test,90,100,0.04,0.011,1.2122,1.2222,0.8235,0.6855,0.3973,False
+wrn50,pcb1,clean test,90,100,0.05,0.011,1.0343,1.0414,0.6861,0.3239,0.1678,False
+wrn50,pcb2,clean test,90,100,0.03,0.011,1.037,1.0328,-0.4063,0.2321,0.0891,False
+wrn50,pcb3,clean test,90,101,0.0099,0.011,1.0624,1.0643,0.1807,0.9978,0.375,False
+wrn50,pcb4,clean test,90,101,0.0594,0.011,1.0065,0.9896,-1.6845,0.0926,0.7601,False
+wrn50,pipe_fryum,clean test,45,50,0.0,0.0217,0.9895,0.9976,0.8198,0.786,0.2051,False

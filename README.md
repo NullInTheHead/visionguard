@@ -329,11 +329,25 @@ false rejects at a 1% target, where split conformal gives 0.7%; on deployment im
 lands at 3-4x a 1% target. Small targets need more calibration images, not
 extrapolation (protocol section 11.4).
 
-## Clean test on VisA (in progress)
+## Clean test on VisA
 
-Every RQ2 conclusion above was reached on MVTec AD. VisA (12 products, never looked at) is
-the clean test: the same frozen settings, the same scripts, and predictions recorded in
-`docs/protocol.md` (section 11.5) before any VisA image was loaded.
+Every RQ2 conclusion above was reached on MVTec AD. VisA (12 products, never looked at
+before) is the clean test: the same frozen settings, the same scripts, and predictions
+recorded in `docs/protocol.md` (section 11.5) before any VisA image was loaded. In VisA's
+official split, training and test goods come from one pool, so it tests the rules on new
+products without session drift; it cannot test drift itself.
+
+| | MVTec AD dev | VisA (clean) |
+|---|---|---|
+| image AUROC, mean | 0.991 | 0.922 (predicted 0.93-0.97: missed) |
+| deployment conformal over target, alpha = 10% / 5% | 0 of 9 / n.a. | **0 of 12 / 0 of 12** |
+| training conformal beyond chance, alpha = 10% | 2 of 9 (drift) | 1 of 12 (no drift, as predicted) |
+| recall, deployment conformal at 10% | | 0.79 |
+| recall, max + margin | 0.83 | 0.44 |
+
+Deployment split conformal hits its false-reject target on all 12 unseen products. Where
+it catches few defects (macaroni2 0.20, capsules 0.42), the ranking is the limit: both
+products localise well (pixel AUROC 0.97-0.98) but score poorly at image level.
 
 ```bash
 bash scripts/setup_visa.sh                       # download (1.8 GB), MVTec layout in data/visa

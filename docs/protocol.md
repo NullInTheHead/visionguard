@@ -505,6 +505,27 @@ nowhere); deployment 25–50 images (α = 10% and 5% everywhere).
 5. Training EVT at α = 5% exceeds α (beyond its Monte-Carlo interval) in more products
    than training split conformal does.
 
+**Outcome (2026-11-14; E1 run on the Mac, threshold scripts unchanged).**
+
+1. Missed. Mean image AUROC 0.922, below the registered 0.93–0.97. Ten products score
+   0.92–0.99; capsules (0.738) and macaroni2 (0.667) pull the mean down. Both still
+   localise (pixel AUROC 0.983 and 0.968), the same pattern as screw on MVTec AD.
+2. Held. Deployment split conformal kept the mean false-reject rate at or below α in
+   12 of 12 products at α = 10% (0.076–0.099) and at α = 5% (0.031–0.042). As on MVTec
+   AD the guarantee is an average: 30–38% of single draws exceed 10%, 23–33% exceed 5%.
+3. Held. The exchangeability check finds no significant shift in any product (0 of 12,
+   one-sided Mann-Whitney), and training split conformal is beyond chance in 1 of 12
+   (pcb1) at α = 10% and 5%, although its realised rate exceeds α in 6 of 12 (one fixed
+   draw).
+4. Held. Max + margin: mean false-reject rate 0.4%, recall below both conformal rules in
+   every product, mean recall 0.44 (MVTec AD: 0.83).
+5. Held, narrowly. Training EVT exceeds α = 5% in 7 of 12 products, training conformal in
+   6. Deployment EVT exceeds α in 6 / 10 / 12 of 12 at α = 10 / 5 / 1%.
+
+At α = 10%, deployment split conformal catches 79% of defects (mean over products); at 5%,
+68%. The deployable rule transfers to new products; what limits it is ranking, not
+calibration.
+
 ## 12. Backbone comparison (RQ4)
 
 Each backbone is reported on four dimensions, not one AUROC. Defect-size bins are fixed
@@ -629,3 +650,4 @@ Either outcome is reported.
 * v1.10 (2026-11-12) — Section 11.4 extreme-value tail fit: rule, runs and predictions recorded before any fit on real scores. No frozen setting changed.
 * v1.11 (2026-11-12) — Section 11.4 outcome and the fit's implementation note.
 * v1.12 (2026-11-12) — D5 settled: VisA with its official one-class split is the clean test set (section 15); section 11.5 clean test, frozen settings and predictions recorded before any VisA image is loaded.
+* v1.13 (2026-11-14) — Section 11.5 outcome on VisA: 4 of 5 predictions held, the ranking prediction missed. No setting changed.
