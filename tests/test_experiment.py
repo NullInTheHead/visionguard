@@ -153,3 +153,27 @@ def test_make_tables_rewrites_only_the_marked_block(tmp_path):
     assert text.startswith("intro\n") and text.endswith("outro\n") and "STALE-TABLE" not in text
     assert "| **Mean** | **0.900** |" in text and "| screw |" in text
     assert make.main(["--root", str(tmp_path), "--check"]) == 0
+
+
+def test_layer_sweep_selection_prefers_shallower_on_ties():
+    sweep = _load_script("vit_layer_sweep")
+    rows = []
+    for pair, (auc, pro) in {"2,5": (0.950, 0.900), "3,7": (0.960, 0.910),
+                             "5,9": (0.962, 0.911)}.items():  # fmt: skip
+        for cat in ("tile", "pill"):
+            rows.append({"backbone": sweep.tag("dinov2", pair), "category": cat,
+                         "image_auroc": auc, "au_pro": pro, "pixel_auroc": 0.97,
+                         "fit_seconds": 1.0, "seconds_per_image": 0.1})  # fmt: skip
+    table = sweep.select_layers(pd.DataFrame(rows), ["dinov2"], sweep.PAIRS)
+    # 5,9 is best by 0.0015 < 0.002, so the shallower 3,7 is selected.
+    assert table[table.selected].layers.tolist() == ["3,7"]
+
+
+def test_run_e1_layers_only_for_vit_on_dev(fake_mvtec, tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    run_e1 = _load_script("run_e1")
+    base = ["--root", str(fake_mvtec), "--out", str(tmp_path), "--no-pretrained"]
+    assert run_e1.main(base + ["--backbone", "toy", "--layers", "0,1",
+                               "--categories", "tile"]) == 2  # fmt: skip
+    assert run_e1.main(base + ["--backbone", "dinov2", "--layers", "7,3",
+                               "--categories", "tile"]) == 2  # fmt: skip

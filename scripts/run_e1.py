@@ -17,6 +17,7 @@ Outputs (under --out, default results/e1):
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import sys
 from pathlib import Path
@@ -58,6 +59,11 @@ def parse_args(argv):
         action="store_true",
         help="required to run on held-out categories (only with frozen settings)",
     )
+    p.add_argument(
+        "--layers",
+        help="ViT layer sweep (protocol 12.1): two 0-based block indices, e.g. 2,5; results "
+        "are labelled <backbone>_L2-5",
+    )
     p.add_argument("--no-heatmaps", action="store_true")
     p.add_argument("--no-pretrained", action="store_true", help=argparse.SUPPRESS)  # tests
     return p.parse_args(argv)
@@ -93,11 +99,24 @@ def main(argv: list[str] | None = None) -> int:
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     import torch  # heavy imports after argument checks
 
-    from visionguard.features import FeatureExtractor, pick_device
+    from visionguard.features import BACKBONES, FeatureExtractor, pick_device
     from visionguard.patchcore import PatchCore
 
     device = pick_device(device_name)
-    extractor = FeatureExtractor(backbone, pretrained=not args.no_pretrained)
+    spec = BACKBONES[backbone]
+    if args.layers:
+        layers = tuple(int(v) for v in args.layers.split(","))
+        if spec.kind != "vit" or len(layers) != 2 or not 0 <= layers[0] < layers[1] < 12:
+            print("--layers takes two increasing block indices (0-11) of a ViT backbone.",
+                  file=sys.stderr)  # fmt: skip
+            return 2
+        if held:
+            print("The layer sweep runs on development categories only (protocol 12.1).",
+                  file=sys.stderr)  # fmt: skip
+            return 2
+        spec = dataclasses.replace(spec, layers=layers)
+        backbone = f"{backbone}_L{layers[0]}-{layers[1]}"
+    extractor = FeatureExtractor(spec, pretrained=not args.no_pretrained)
     model = PatchCore(
         extractor,
         device=device,
